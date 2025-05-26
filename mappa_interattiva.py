@@ -9,7 +9,8 @@ from pyvis.network import Network
 import streamlit as st
 import streamlit.components.v1 as components
 
-
+# Debug iniziale
+st.write("Hello Mondo")
 
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
@@ -167,11 +168,16 @@ if doc and st.button("Genera mappa"):  # Prima fase
     st.subheader("Frequenza termini (TF)")
     for nodo, freq in sorted_tf:
         st.write(f"{nodo}: {freq}")
-    # Slider soglia basata su TF massimo
+        # Campo soglia basata su TF massimo
     max_tf = sorted_tf[0][1] if sorted_tf else 1
-    soglia = st.slider("Imposta la soglia sulla base delle frequenze visibili", 1, max_tf, 1)
+    soglia = st.number_input("Imposta la soglia sulla base delle frequenze visibili", min_value=1, max_value=max_tf, value=1, step=1)
     # Bottone per generare il grafo
-    st.session_state['testo'] = testo
+    if st.button("Conferma soglia e procedi a grafo"):
+        st.session_state['testo'] = testo
+        st.session_state['mappa'] = mappa
+        st.session_state['soglia'] = soglia
+
+if 'mappa' in st.session_state and st.button("Genera grafo interattivo")['testo'] = testo
     st.session_state['mappa'] = mappa
     st.session_state['soglia'] = soglia
 
