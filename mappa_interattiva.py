@@ -101,7 +101,7 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
                 'relation': e.get('relation', '')
             })
     # Filtra nodi numerici o placeholder tipo n1, n2...
-    nodes = [n for n in raw_nodes if not re.match(r'^(?:\d+|n\d+)$', n)]
+    nodes = [n for n in raw_nodes if not re.match(r'^(?:\d+|n\d+)$', str(n))]
     edges = [e for e in raw_edges if e['from'] in nodes and e['to'] in nodes]
     return {'nodes': nodes, 'edges': edges}
 
