@@ -143,9 +143,9 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
     
     # Physics settings
     net.force_atlas_2based(
-        gravity=-150,
+        gravity=-200,
         central_gravity=0.01,
-        spring_length=1200,
+        spring_length=800,
         spring_strength=0.001,
         damping=0.7
     )
