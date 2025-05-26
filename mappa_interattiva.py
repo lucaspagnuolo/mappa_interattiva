@@ -68,6 +68,7 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
             "Rispondi SOLO con un JSON valido contenente i campi 'nodes' e 'edges'."
             " Includi nodes ed edges con campi 'from','to','relation'."
             " Obiettivo: Individuare i contesti e oggetti correlati e collegati al '" + central_node + "'."
+            "Nodo centrale: '" + central_node + "'\n"
             f"\nBlocco {idx}/{len(blocchi)}:\n{b}"
         )
         payload = {"model": MODEL, "messages": [{"role": "user", "content": prompt}]}
