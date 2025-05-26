@@ -9,6 +9,9 @@ from pyvis.network import Network
 import streamlit as st
 import streamlit.components.v1 as components
 
+# Debug iniziale
+st.write("Hello Mondo")
+
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
@@ -25,6 +28,7 @@ def estrai_testo_da_pdf(file) -> str:
     progress.empty()
     return "\n".join(testo)
 
+
 def suddividi_testo(testo: str, max_chars: int = 15000) -> list[str]:
     parole = testo.split()
     blocchi, corrente, lunghezza = [], [], 0
@@ -37,6 +41,7 @@ def suddividi_testo(testo: str, max_chars: int = 15000) -> list[str]:
     if corrente:
         blocchi.append(" ".join(corrente))
     return blocchi
+
 
 def call_with_retries(prompt_args, max_retries=5):
     for attempt in range(1, max_retries + 1):
@@ -55,8 +60,6 @@ def call_with_retries(prompt_args, max_retries=5):
             else:
                 raise
 
-def normalizza(testo):
-    return re.sub(r'\s+', ' ', testo.lower().strip())
 
 def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
     blocchi = suddividi_testo(testo)
@@ -67,8 +70,8 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
         prompt = (
             "Rispondi SOLO con un JSON valido contenente i campi 'nodes' e 'edges'."
             " Includi nodes ed edges con campi 'from','to','relation'."
-            f" Obiettivo: Individuare i contesti e oggetti correlati e collegati al '{central_node}'."
-            f" Nodo centrale: '{central_node}'\n\nBlocco {idx}/{len(blocchi)}:\n{b}"
+            " Obiettivo: Individuare i contesti e oggetti correlati e collegati al '" + central_node + "'."
+            f"\nBlocco {idx}/{len(blocchi)}:\n{b}"
         )
         payload = {"model": MODEL, "messages": [{"role": "user", "content": prompt}]}
         resp = call_with_retries(payload)
@@ -85,7 +88,7 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
         progress.progress(idx / len(blocchi))
     progress.empty()
     st.success("Mappa concettuale generata")
-
+    # Estrai e pulisci nodes ed edges
     raw_nodes, raw_edges = set(), []
     for m in ris:
         for n in m.get('nodes', []):
@@ -97,69 +100,71 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
                 'to': e.get('to'),
                 'relation': e.get('relation', '')
             })
-
-    raw_nodes.add(central_node)  # forza inclusione nodo centrale
+    # Filtra nodi numerici o placeholder tipo n1, n2...
     nodes = [n for n in raw_nodes if not re.match(r'^(?:\d+|n\d+)$', n)]
     edges = [e for e in raw_edges if e['from'] in nodes and e['to'] in nodes]
     return {'nodes': nodes, 'edges': edges}
 
 
 def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: int = 1) -> str:
-    st.info("Creazione grafo interattivo...")
-    progress = st.progress(0)
-    testo_norm = normalizza(testo)
-    tf = {n: len(re.findall(rf"\b{re.escape(normalizza(n))}\b", testo_norm)) for n in mappa['nodes']}
+    st.info("Creazione grafo interattivo...")
+    progress = st.progress(0)
+    # TF count
+    tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in mappa['nodes']}
+    # Primi vicini
+    first_level = {e['to'] for e in mappa['edges'] if e['from'] == central_node}
+    removed = {n for n in first_level if tf.get(n, 0) < soglia}
+    queue = list(removed)
+    while queue:
+        cur = queue.pop()
+        for e in mappa['edges']:
+            if e['from'] == cur and e['to'] not in removed:
+                removed.add(e['to'])
+                queue.append(e['to'])
+    filt_nodes = [n for n in mappa['nodes'] if n not in removed]
+    filt_edges = [e for e in mappa['edges'] if e['from'] not in removed and e['to'] not in removed]
 
-    first_level = {e['to'] for e in mappa['edges'] if e['from'] == central_node}
-    removed = {n for n in first_level if tf.get(n, 0) < soglia}
-    queue = list(removed)
-    while queue:
-        cur = queue.pop()
-        for e in mappa['edges']:
-            if e['from'] == cur and e['to'] not in removed:
-                removed.add(e['to'])
-                queue.append(e['to'])
+    G = nx.DiGraph()
+    for i, n in enumerate(filt_nodes, 1):
+        G.add_node(n)
+        progress.progress(i / len(filt_nodes))
+    for e in filt_edges:
+        src, dst, rel = e['from'], e['to'], e.get('relation', '')
+        G.add_edge(src, dst, relation=rel)
+    progress.empty()
 
-    filt_nodes = [n for n in mappa['nodes'] if n not in removed]
-    filt_edges = [e for e in mappa['edges'] if e['from'] not in removed and e['to'] not in removed]
+    # Community detection
+    communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
+    group = {n: i for i, comm in enumerate(communities) for n in comm}
 
-    G = nx.DiGraph()
-    for i, n in enumerate(filt_nodes, 1):
-        G.add_node(n)
-        progress.progress(i / len(filt_nodes))
-    for e in filt_edges:
-        G.add_edge(e['from'], e['to'], relation=e.get('relation', ''))
-    progress.empty()
+    net = Network(directed=True, height='650px', width='100%')
+    # Physics settings
+    net.force_atlas_2based(
+        gravity=-100,
+        central_gravity=0.005,
+        spring_length=800,
+        spring_strength=0.002,
+        damping=0.6
+    )
+    for n in G.nodes():
+        size = 10 + (tf.get(n, 0) ** 0.5) * 20
+        net.add_node(n, label=n, group=group.get(n, 0), size=size)
+    for src, dst, data in G.edges(data=True):
+        net.add_edge(src, dst, label=data.get('relation', ''))
+    net.show_buttons(filter_=['physics', 'nodes', 'edges'])
 
-    communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
-    group = {n: i for i, comm in enumerate(communities) for n in comm}
-
-    # === Setup rete PyVis ===
-    net = Network(directed=True, height='750px', width='100%')
-    net.force_atlas_2based(
-        gravity=-100,
-        central_gravity=0.005,
-        spring_length=800,
-        spring_strength=0.002,
-        damping=0.6
-    )
-
-    for n in G.nodes():
-        size = 10 + (tf.get(n, 1) ** 0.5) * 20  # fallback a 1 se TF = 0
-        net.add_node(n, label=n, group=group.get(n, 0), size=size)
-    for src, dst, data in G.edges(data=True):
-        net.add_edge(src, dst, label=data.get('relation', ''))
-    net.show_buttons(filter_=['physics', 'nodes', 'edges'])
-
-    html_file = f"temp_graph_{int(time.time())}.html"
-    net.save_graph(html_file)
-    st.success("Grafo generato")
-    return html_file
-
+    html_file = f"temp_graph_{int(time.time())}.html"
+    net.save_graph(html_file)
+    st.success("Grafo generato")
+    return html_file
 
 # === STREAMLIT UI ===
 st.title("Generatore Mappa Concettuale PDF")
+
+# Uploader
 doc = st.file_uploader("Carica il file PDF", type=['pdf'])
+
+# Input parametri
 central_node = st.text_input("Cosa vorresti analizzare?", value="Servizio di Manutenzione")
 json_name = st.text_input("Nome file JSON (senza estensione)", value="mappa")
 html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
@@ -168,10 +173,12 @@ soglia = st.number_input("Soglia", min_value=1, value=1, step=1)
 if st.button("Genera mappa e grafico") and doc:
     testo = estrai_testo_da_pdf(doc)
     mappa = genera_mappa_concettuale(testo, central_node)
+    # Anteprima e download JSON
     json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
     st.subheader("Anteprima JSON")
     st.json(mappa)
     st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
+    # Grafico interattivo
     html_file = crea_grafo_interattivo(mappa, testo, central_node, soglia)
     st.subheader("Anteprima Grafico Interattivo")
     html_content = open(html_file, 'r', encoding='utf-8').read()
