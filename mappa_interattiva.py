@@ -9,6 +9,8 @@ from pyvis.network import Network
 import streamlit as st
 import streamlit.components.v1 as components
 
+
+
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
@@ -16,7 +18,7 @@ MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
 # === FUNZIONI DI BACKEND ===
 def estrai_testo_da_pdf(file) -> str:
     testo = []
-    total = len(pdfplumber.open(file).pages)
+    total = pdfplumber.open(file).pages.__len__()
     progress = st.progress(0)
     with pdfplumber.open(file) as pdf:
         for i, pagina in enumerate(pdf.pages, 1):
@@ -86,7 +88,7 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
         progress.progress(idx / len(blocchi))
     progress.empty()
     st.success("Mappa concettuale generata")
-    
+    # Estrai e pulisci nodes ed edges
     raw_nodes, raw_edges = set(), []
     for m in ris:
         for n in m.get('nodes', []):
@@ -98,6 +100,7 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
                 'to': e.get('to'),
                 'relation': e.get('relation', '')
             })
+    # Filtra nodi numerici o placeholder tipo n1, n2...
     nodes = [n for n in raw_nodes if not re.match(r'^(?:\d+|n\d+)$', str(n))]
     edges = [e for e in raw_edges if e['from'] in nodes and e['to'] in nodes]
     return {'nodes': nodes, 'edges': edges}
@@ -106,7 +109,9 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
 def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: int = 1) -> str:
     st.info("Creazione grafo interattivo...")
     progress = st.progress(0)
+    # TF count
     tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in mappa['nodes']}
+    # Primi vicini
     first_level = {e['to'] for e in mappa['edges'] if e['from'] == central_node}
     removed = {n for n in first_level if tf.get(n, 0) < soglia}
     queue = list(removed)
@@ -124,17 +129,19 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
         G.add_node(n)
         progress.progress(i / len(filt_nodes))
     for e in filt_edges:
-        G.add_edge(e['from'], e['to'], relation=e.get('relation', ''))
+        src, dst, rel = e['from'], e['to'], e.get('relation', '')
+        G.add_edge(src, dst, relation=rel)
     progress.empty()
 
+    # Community detection
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
     group = {n: i for i, comm in enumerate(communities) for n in comm}
 
     net = Network(directed=True, height='650px', width='100%')
     degrees = dict(G.degree())
     main_node = max(degrees, key=degrees.get)
-
-    # Usa Force Atlas 2
+    
+    # Physics settings
     net.force_atlas_2based(
         gravity=-150,
         central_gravity=0.01,
@@ -142,7 +149,6 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
         spring_strength=0.001,
         damping=0.7
     )
-
     for n in G.nodes():
         size = 10 + (tf.get(n, 0) ** 0.5) * 20
         if n == main_node:
@@ -161,11 +167,10 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
                 group=group.get(n, 0),
                 size=size
             )
-
     for src, dst, data in G.edges(data=True):
         net.add_edge(src, dst, label=data.get('relation', ''))
-
     net.show_buttons(filter_=['physics', 'nodes', 'edges'])
+
     html_file = f"temp_graph_{int(time.time())}.html"
     net.save_graph(html_file)
     st.success("Grafo generato")
@@ -174,7 +179,10 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
 # === STREAMLIT UI ===
 st.title("Generatore Mappa Concettuale PDF")
 
+# Uploader
 doc = st.file_uploader("Carica il file PDF", type=['pdf'])
+
+# Input parametri
 central_node = st.text_input("Cosa vorresti analizzare?", value="Servizio di Manutenzione")
 json_name = st.text_input("Nome file JSON (senza estensione)", value="mappa")
 html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
@@ -183,10 +191,12 @@ soglia = st.number_input("Soglia", min_value=1, value=1, step=1)
 if st.button("Genera mappa e grafico") and doc:
     testo = estrai_testo_da_pdf(doc)
     mappa = genera_mappa_concettuale(testo, central_node)
+    # Anteprima e download JSON
     json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
     st.subheader("Anteprima JSON")
     st.json(mappa)
     st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
+    # Grafico interattivo
     html_file = crea_grafo_interattivo(mappa, testo, central_node, soglia)
     st.subheader("Anteprima Grafico Interattivo")
     html_content = open(html_file, 'r', encoding='utf-8').read()
