@@ -9,6 +9,8 @@ from pyvis.network import Network
 import streamlit as st
 import streamlit.components.v1 as components
 
+
+
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
@@ -103,12 +105,11 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
     return {'nodes': nodes, 'edges': edges}
 
 
-def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: int = 1) -> str:
+def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: int) -> str:
     st.info("Creazione grafo interattivo...")
     progress = st.progress(0)
-    # TF count
     tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in mappa['nodes']}
-    # Primi vicini
+    # Primi vicini e rimozione
     first_level = {e['to'] for e in mappa['edges'] if e['from'] == central_node}
     removed = {n for n in first_level if tf.get(n, 0) < soglia}
     queue = list(removed)
@@ -120,7 +121,6 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
                 queue.append(e['to'])
     filt_nodes = [n for n in mappa['nodes'] if n not in removed]
     filt_edges = [e for e in mappa['edges'] if e['from'] not in removed and e['to'] not in removed]
-
     G = nx.DiGraph()
     for i, n in enumerate(filt_nodes, 1):
         G.add_node(n)
@@ -129,13 +129,9 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
         src, dst, rel = e['from'], e['to'], e.get('relation', '')
         G.add_edge(src, dst, relation=rel)
     progress.empty()
-
-    # Community detection
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
     group = {n: i for i, comm in enumerate(communities) for n in comm}
-
     net = Network(directed=True, height='650px', width='100%')
-    # Physics settings
     net.force_atlas_2based(
         gravity=-100,
         central_gravity=0.005,
@@ -149,7 +145,6 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
     for src, dst, data in G.edges(data=True):
         net.add_edge(src, dst, label=data.get('relation', ''))
     net.show_buttons(filter_=['physics', 'nodes', 'edges'])
-
     html_file = f"temp_graph_{int(time.time())}.html"
     net.save_graph(html_file)
     st.success("Grafo generato")
@@ -158,25 +153,36 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
 # === STREAMLIT UI ===
 st.title("Generatore Mappa Concettuale PDF")
 
-# Uploader
 doc = st.file_uploader("Carica il file PDF", type=['pdf'])
-
-# Input parametri
 central_node = st.text_input("Cosa vorresti analizzare?", value="Servizio di Manutenzione")
 json_name = st.text_input("Nome file JSON (senza estensione)", value="mappa")
 html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
-soglia = st.number_input("Soglia", min_value=1, value=1, step=1)
 
-if st.button("Genera mappa e grafico") and doc:
+if doc and st.button("Genera mappa"):  # Prima fase
     testo = estrai_testo_da_pdf(doc)
     mappa = genera_mappa_concettuale(testo, central_node)
-    # Anteprima e download JSON
-    json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
-    st.subheader("Anteprima JSON")
-    st.json(mappa)
+    # Calcola TF e ordina
+    tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in mappa['nodes']}
+    sorted_tf = sorted(tf.items(), key=lambda x: x[1], reverse=True)
+    st.subheader("Frequenza termini (TF)")
+    for nodo, freq in sorted_tf:
+        st.write(f"{nodo}: {freq}")
+    # Slider soglia basata su TF massimo
+    max_tf = sorted_tf[0][1] if sorted_tf else 1
+    soglia = st.slider("Imposta la soglia sulla base delle frequenze visibili", 1, max_tf, 1)
+    # Bottone per generare il grafo
+    st.session_state['testo'] = testo
+    st.session_state['mappa'] = mappa
+    st.session_state['soglia'] = soglia
+
+if 'mappa' in st.session_state and st.button("Genera grafo interattivo"):
+    html_file = crea_grafo_interattivo(
+        st.session_state['mappa'], st.session_state['testo'], central_node, st.session_state['soglia']
+    )
+    # Download JSON
+    json_bytes = json.dumps(st.session_state['mappa'], ensure_ascii=False, indent=2).encode('utf-8')
     st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
-    # Grafico interattivo
-    html_file = crea_grafo_interattivo(mappa, testo, central_node, soglia)
+    # Anteprima e download HTML
     st.subheader("Anteprima Grafico Interattivo")
     html_content = open(html_file, 'r', encoding='utf-8').read()
     components.html(html_content, height=600, scrolling=True)
