@@ -140,11 +140,11 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
     net = Network(directed=True, height='650px', width='100%')
     # Physics settings
     net.force_atlas_2based(
-        gravity=-100,
-        central_gravity=0.005,
-        spring_length=800,
-        spring_strength=0.002,
-        damping=0.6
+        gravity=-50,
+        central_gravity=0.01,
+        spring_length=1200,
+        spring_strength=0.001,
+        damping=0.7
     )
     for n in G.nodes():
         size = 10 + (tf.get(n, 0) ** 0.5) * 20
