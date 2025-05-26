@@ -9,8 +9,7 @@ from pyvis.network import Network
 import streamlit as st
 import streamlit.components.v1 as components
 
-# Debug iniziale
-st.write("Hello Mondo")
+
 
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
