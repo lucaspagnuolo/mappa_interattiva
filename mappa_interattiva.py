@@ -106,9 +106,7 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
 def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: int = 1) -> str:
     st.info("Creazione grafo interattivo...")
     progress = st.progress(0)
-    # TF count
     tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in mappa['nodes']}
-    # Filtraggio in base a soglia
     first_level = {e['to'] for e in mappa['edges'] if e['from'] == central_node}
     removed = {n for n in first_level if tf.get(n, 0) < soglia}
     queue = list(removed)
@@ -129,26 +127,22 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
         G.add_edge(e['from'], e['to'], relation=e.get('relation', ''))
     progress.empty()
 
-    # Community detection
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
     group = {n: i for i, comm in enumerate(communities) for n in comm}
 
     net = Network(directed=True, height='650px', width='100%')
-
-    # Determina il nodo principale (grado massimo)
     degrees = dict(G.degree())
     main_node = max(degrees, key=degrees.get)
 
-    # Physics: usa Barnes-Hut per maggiore controllo
+    # Fisica estremizzata per massima distanza
     net.barnes_hut(
-        gravity=-2000,
-        central_gravity=0.3,
-        spring_length=200,
-        spring_strength=0.05,
-        damping=0.5
+        gravity=-200,         # attrazione molto debole
+        central_gravity=0.01, # quasi nessun richiamo centrale
+        spring_length=2000,   # molle ultra estese
+        spring_strength=0.001,# molle estremamente morbide
+        damping=0.7          # smorzamento altissimo
     )
 
-    # Aggiungi nodi: fissa il main_node al centro
     for n in G.nodes():
         size = 10 + (tf.get(n, 0) ** 0.5) * 20
         if n == main_node:
@@ -168,13 +162,10 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
                 size=size
             )
 
-    # Aggiungi archi
     for src, dst, data in G.edges(data=True):
         net.add_edge(src, dst, label=data.get('relation', ''))
 
     net.show_buttons(filter_=['physics', 'nodes', 'edges'])
-
-    # Salva HTML
     html_file = f"temp_graph_{int(time.time())}.html"
     net.save_graph(html_file)
     st.success("Grafo generato")
