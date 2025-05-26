@@ -1,0 +1,5 @@
+streamlit>=1.25.0
+pdfplumber>=0.7.6
+mistralai>=0.1.0
+networkx>=3.0
+pyvis>=0.3.0
