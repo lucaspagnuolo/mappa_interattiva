@@ -9,6 +9,7 @@ from pyvis.network import Network
 import streamlit as st
 import streamlit.components.v1 as components
 
+
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
@@ -141,36 +142,40 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
 st.title("Generatore Mappa Concettuale PDF")
 
 # Input iniziali
--doc = st.file_uploader("Carica il file PDF", type=['pdf'])
--central_node = st.text_input("Cosa vorresti analizzare?", value="Servizio di Manutenzione")
--json_name = st.text_input("Nome file JSON (senza estensione)", value="mappa")
--html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
--
--soglia = st.number_input("Imposta soglia", min_value=1, value=1, step=1)
-+# Input iniziali
-+doc = st.file_uploader("Carica il file PDF", type=['pdf'])
-+central_node = st.text_input("Cosa vorresti analizzare?", value="Servizio di Manutenzione")
-+json_name = st.text_input("Nome file JSON (senza estensione)", value="mappa")
-+html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
-+
-+# Campo soglia visibile prima
-tmp_soglia = st.number_input("Imposta soglia", min_value=1, value=1, step=1)
-+st.session_state['soglia'] = tmp_soglia
- 
--if doc and st.button("Genera mappa"):
-+if doc and st.button("Genera mappa"):
-     testo = estrai_testo_da_pdf(doc)
-     mappa = genera_mappa_concettuale(testo, central_node)
-@@
--    max_tf = sorted_tf[0][1] if sorted_tf else 1
--    soglia = st.number_input("Imposta soglia", min_value=1, max_value=max_tf, value=1, step=1)
--    if st.button("Conferma soglia e procedi"):
--        st.session_state['testo'] = testo
--        st.session_state['mappa'] = mappa
--        st.session_state['soglia'] = soglia
-+    # Usa soglia preimpostata
-+    st.session_state['testo'] = testo
-+    st.session_state['mappa'] = mappa
- 
- # Fase 2: Generazione grafo interattivo
- if 'mappa' in st.session_state:
+if 'soglia' not in st.session_state:
+    st.session_state['soglia'] = 1
+
+doc = st.file_uploader("Carica il file PDF", type=['pdf'])
+central_node = st.text_input("Cosa vorresti analizzare?", value="Servizio di Manutenzione")
+json_name = st.text_input("Nome file JSON (senza estensione)", value="mappa")
+html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
+# Campo soglia sempre visibile
+soglia = st.number_input("Imposta soglia", min_value=1, value=st.session_state['soglia'], step=1)
+st.session_state['soglia'] = soglia
+
+# Fase 1: Generazione mappa e salvataggio
+if doc and st.button("Genera mappa"):
+    testo = estrai_testo_da_pdf(doc)
+    mappa = genera_mappa_concettuale(testo, central_node)
+    tf = {n: len(re.findall(rf"{re.escape(n)}", testo, flags=re.IGNORECASE)) for n in mappa['nodes']}
+    sorted_tf = sorted(tf.items(), key=lambda x: x[1], reverse=True)
+    st.subheader("Frequenza termini (TF)")
+    for nodo, freq in sorted_tf:
+        st.write(f"{nodo}: {freq}")
+    # Salva in session_state
+    st.session_state['testo'] = testo
+    st.session_state['mappa'] = mappa
+
+# Fase 2: Generazione grafo interattivo
+if 'mappa' in st.session_state and st.button("Genera grafo interattivo"):
+    html_file = crea_grafo_interattivo(
+        st.session_state['mappa'], st.session_state['testo'], central_node, st.session_state['soglia']
+    )
+    # Download JSON
+    json_bytes = json.dumps(st.session_state['mappa'], ensure_ascii=False, indent=2).encode('utf-8')
+    st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
+    # Anteprima e download HTML
+    st.subheader("Anteprima Grafico Interattivo")
+    html_content = open(html_file, 'r', encoding='utf-8').read()
+    components.html(html_content, height=600, scrolling=True)
+    st.download_button("Scarica Grafico HTML", data=html_content, file_name=f"{html_name}.html", mime='text/html')
