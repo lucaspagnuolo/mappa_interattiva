@@ -85,13 +85,20 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
         progress.progress(idx / len(blocchi))
     progress.empty()
     st.success("Mappa concettuale generata")
+    # Estrai e pulisci nodes ed edges
     raw_nodes, raw_edges = set(), []
     for m in ris:
-        for n in m.get('nodes', []): raw_nodes.add(n if isinstance(n, str) else n.get('id', n))
+        for n in m.get('nodes', []):
+            nid = n if isinstance(n, str) else n.get('id', '')
+            raw_nodes.add(nid)
         for e in m.get('edges', []):
-            src = e.get('from'); dst = e.get('to'); rel = e.get('relation', '')
-            raw_edges.append({'from': src, 'to': dst, 'relation': rel})
-    nodes = [n for n in raw_nodes if not (isinstance(n, (int, float)) or (isinstance(n, str) and n.isdigit()))]
+            raw_edges.append({
+                'from': e.get('from'),
+                'to': e.get('to'),
+                'relation': e.get('relation', '')
+            })
+    # Filtra nodi numerici o placeholder tipo n1, n2...
+    nodes = [n for n in raw_nodes if not re.match(r'^(?:\d+|n\d+)$', n)]
     edges = [e for e in raw_edges if e['from'] in nodes and e['to'] in nodes]
     return {'nodes': nodes, 'edges': edges}
 
@@ -99,8 +106,9 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
 def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: int = 1) -> str:
     st.info("Creazione grafo interattivo...")
     progress = st.progress(0)
+    # TF count
     tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in mappa['nodes']}
-    # Filtra primo livello
+    # Primi vicini
     first_level = {e['to'] for e in mappa['edges'] if e['from'] == central_node}
     removed = {n for n in first_level if tf.get(n, 0) < soglia}
     queue = list(removed)
@@ -108,23 +116,40 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
         cur = queue.pop()
         for e in mappa['edges']:
             if e['from'] == cur and e['to'] not in removed:
-                removed.add(e['to']); queue.append(e['to'])
+                removed.add(e['to'])
+                queue.append(e['to'])
     filt_nodes = [n for n in mappa['nodes'] if n not in removed]
     filt_edges = [e for e in mappa['edges'] if e['from'] not in removed and e['to'] not in removed]
+
     G = nx.DiGraph()
     for i, n in enumerate(filt_nodes, 1):
         G.add_node(n)
         progress.progress(i / len(filt_nodes))
-    for src, dst, d in filt_edges:
-        G.add_edge(src, dst, relation=d.get('relation',''))
+    for e in filt_edges:
+        src, dst, rel = e['from'], e['to'], e.get('relation', '')
+        G.add_edge(src, dst, relation=rel)
     progress.empty()
+
     # Community detection
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
     group = {n: i for i, comm in enumerate(communities) for n in comm}
+
     net = Network(directed=True, height='650px', width='100%')
-    for n in G.nodes(): net.add_node(n, label=n, group=group.get(n, 0), size=10 + (tf.get(n,0)**0.5)*20)
-    for src, dst, d in G.edges(data=True): net.add_edge(src, dst, label=d.get('relation',''))
-    net.show_buttons(filter_=['physics'])
+    # Physics settings
+    net.force_atlas_2based(
+        gravity=-100,
+        central_gravity=0.005,
+        spring_length=800,
+        spring_strength=0.002,
+        damping=0.6
+    )
+    for n in G.nodes():
+        size = 10 + (tf.get(n, 0) ** 0.5) * 20
+        net.add_node(n, label=n, group=group.get(n, 0), size=size)
+    for src, dst, data in G.edges(data=True):
+        net.add_edge(src, dst, label=data.get('relation', ''))
+    net.show_buttons(filter_=['physics', 'nodes', 'edges'])
+
     html_file = f"temp_graph_{int(time.time())}.html"
     net.save_graph(html_file)
     st.success("Grafo generato")
@@ -133,28 +158,26 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
 # === STREAMLIT UI ===
 st.title("Generatore Mappa Concettuale PDF")
 
-# 1. Upload PDF
+# Uploader
 doc = st.file_uploader("Carica il file PDF", type=['pdf'])
 
+# Input parametri
 central_node = st.text_input("Cosa vorresti analizzare?", value="Servizio di Manutenzione")
 json_name = st.text_input("Nome file JSON (senza estensione)", value="mappa")
 html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
-
-# Soglia di filtro per il nodo centrale
 soglia = st.number_input("Soglia", min_value=1, value=1, step=1)
 
 if st.button("Genera mappa e grafico") and doc:
     testo = estrai_testo_da_pdf(doc)
     mappa = genera_mappa_concettuale(testo, central_node)
-    # Salva JSON
+    # Anteprima e download JSON
     json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
     st.subheader("Anteprima JSON")
     st.json(mappa)
-    # Crea grafo
+    st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
+    # Grafico interattivo
     html_file = crea_grafo_interattivo(mappa, testo, central_node, soglia)
     st.subheader("Anteprima Grafico Interattivo")
     html_content = open(html_file, 'r', encoding='utf-8').read()
     components.html(html_content, height=600, scrolling=True)
-    # Download
-    st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
     st.download_button("Scarica Grafico HTML", data=html_content, file_name=f"{html_name}.html", mime='text/html')
