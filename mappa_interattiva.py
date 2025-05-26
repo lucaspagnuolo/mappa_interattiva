@@ -140,7 +140,7 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
     net = Network(directed=True, height='650px', width='100%')
     # Physics settings
     net.force_atlas_2based(
-        gravity=-50,
+        gravity=-150,
         central_gravity=0.01,
         spring_length=1200,
         spring_strength=0.001,
