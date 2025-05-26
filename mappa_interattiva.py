@@ -134,13 +134,13 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
     degrees = dict(G.degree())
     main_node = max(degrees, key=degrees.get)
 
-    # Fisica estremizzata per massima distanza
-    net.barnes_hut(
-        gravity=-200,         # attrazione molto debole
-        central_gravity=0.01, # quasi nessun richiamo centrale
-        spring_length=2000,   # molle ultra estese
-        spring_strength=0.001,# molle estremamente morbide
-        damping=0.7          # smorzamento altissimo
+    # Usa Force Atlas 2
+    net.force_atlas_2based(
+        gravity=-150,
+        central_gravity=0.01,
+        spring_length=1200,
+        spring_strength=0.001,
+        damping=0.7
     )
 
     for n in G.nodes():
@@ -174,21 +174,21 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
 # === STREAMLIT UI ===
 st.title("Generatore Mappa Concettuale PDF")
 
-doc = st.file_uploader("Carica il file PDF", type=['pdf'])
-central_node = st.text_input("Cosa vorresti analizzare?", value="Servizio di Manutenzione")
-json_name = st.text_input("Nome file JSON (senza estensione)", value="mappa")
-html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
-soglia = st.number_input("Soglia", min_value=1, value=1, step=1)
+ doc = st.file_uploader("Carica il file PDF", type=['pdf'])
+ central_node = st.text_input("Cosa vorresti analizzare?", value="Servizio di Manutenzione")
+ json_name = st.text_input("Nome file JSON (senza estensione)", value="mappa")
+ html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
+ soglia = st.number_input("Soglia", min_value=1, value=1, step=1)
 
-if st.button("Genera mappa e grafico") and doc:
-    testo = estrai_testo_da_pdf(doc)
-    mappa = genera_mappa_concettuale(testo, central_node)
-    json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
-    st.subheader("Anteprima JSON")
-    st.json(mappa)
-    st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
-    html_file = crea_grafo_interattivo(mappa, testo, central_node, soglia)
-    st.subheader("Anteprima Grafico Interattivo")
-    html_content = open(html_file, 'r', encoding='utf-8').read()
-    components.html(html_content, height=600, scrolling=True)
-    st.download_button("Scarica Grafico HTML", data=html_content, file_name=f"{html_name}.html", mime='text/html')
+ if st.button("Genera mappa e grafico") and doc:
+     testo = estrai_testo_da_pdf(doc)
+     mappa = genera_mappa_concettuale(testo, central_node)
+     json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
+     st.subheader("Anteprima JSON")
+     st.json(mappa)
+     st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
+     html_file = crea_grafo_interattivo(mappa, testo, central_node, soglia)
+     st.subheader("Anteprima Grafico Interattivo")
+     html_content = open(html_file, 'r', encoding='utf-8').read()
+     components.html(html_content, height=600, scrolling=True)
+     st.download_button("Scarica Grafico HTML", data=html_content, file_name=f"{html_name}.html", mime='text/html')
