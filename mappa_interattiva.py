@@ -10,7 +10,6 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 
-
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
@@ -88,7 +87,6 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
         progress.progress(idx / len(blocchi))
     progress.empty()
     st.success("Mappa concettuale generata")
-    # Estrai e pulisci nodes ed edges
     raw_nodes, raw_edges = set(), []
     for m in ris:
         for n in m.get('nodes', []):
@@ -100,7 +98,6 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
                 'to': e.get('to'),
                 'relation': e.get('relation', '')
             })
-    # Filtra nodi numerici o placeholder tipo n1, n2...
     nodes = [n for n in raw_nodes if not re.match(r'^(?:\d+|n\d+)$', str(n))]
     edges = [e for e in raw_edges if e['from'] in nodes and e['to'] in nodes]
     return {'nodes': nodes, 'edges': edges}
@@ -109,9 +106,7 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
 def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: int = 1) -> str:
     st.info("Creazione grafo interattivo...")
     progress = st.progress(0)
-    # TF count
     tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in mappa['nodes']}
-    # Primi vicini
     first_level = {e['to'] for e in mappa['edges'] if e['from'] == central_node}
     removed = {n for n in first_level if tf.get(n, 0) < soglia}
     queue = list(removed)
@@ -129,19 +124,15 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
         G.add_node(n)
         progress.progress(i / len(filt_nodes))
     for e in filt_edges:
-        src, dst, rel = e['from'], e['to'], e.get('relation', '')
-        G.add_edge(src, dst, relation=rel)
+        G.add_edge(e['from'], e['to'], relation=e.get('relation', ''))
     progress.empty()
 
-    # Community detection
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
     group = {n: i for i, comm in enumerate(communities) for n in comm}
 
     net = Network(directed=True, height='650px', width='100%')
     degrees = dict(G.degree())
     main_node = max(degrees, key=degrees.get)
-    
-    # Physics settings
     net.force_atlas_2based(
         gravity=-200,
         central_gravity=0.01,
@@ -152,21 +143,9 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
     for n in G.nodes():
         size = 10 + (tf.get(n, 0) ** 0.5) * 20
         if n == main_node:
-            net.add_node(
-                n,
-                label=n,
-                group=group.get(n, 0),
-                size=size,
-                x=0, y=0,
-                fixed={'x': True, 'y': True}
-            )
+            net.add_node(n, label=n, group=group.get(n, 0), size=size, x=0, y=0, fixed={'x': True, 'y': True})
         else:
-            net.add_node(
-                n,
-                label=n,
-                group=group.get(n, 0),
-                size=size
-            )
+            net.add_node(n, label=n, group=group.get(n, 0), size=size)
     for src, dst, data in G.edges(data=True):
         net.add_edge(src, dst, label=data.get('relation', ''))
     net.show_buttons(filter_=['physics', 'nodes', 'edges'])
@@ -179,26 +158,43 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
 # === STREAMLIT UI ===
 st.title("Generatore Mappa Concettuale PDF")
 
-# Uploader
+# Uploader e parametri iniziali
 doc = st.file_uploader("Carica il file PDF", type=['pdf'])
-
-# Input parametri
 central_node = st.text_input("Cosa vorresti analizzare?", value="Servizio di Manutenzione")
 json_name = st.text_input("Nome file JSON (senza estensione)", value="mappa")
 html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
 soglia = st.number_input("Soglia", min_value=1, value=1, step=1)
 
+# Generazione mappa e grafico
 if st.button("Genera mappa e grafico") and doc:
     testo = estrai_testo_da_pdf(doc)
     mappa = genera_mappa_concettuale(testo, central_node)
+    # Salva nello stato
+    st.session_state['mappa'] = mappa
+    st.session_state['testo'] = testo
+    st.session_state['central_node'] = central_node
+    st.session_state['soglia'] = soglia
     # Anteprima e download JSON
-    json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
     st.subheader("Anteprima JSON")
     st.json(mappa)
+    json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
     st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
-    # Grafico interattivo
+    # Creazione e anteprima grafico
     html_file = crea_grafo_interattivo(mappa, testo, central_node, soglia)
     st.subheader("Anteprima Grafico Interattivo")
     html_content = open(html_file, 'r', encoding='utf-8').read()
     components.html(html_content, height=600, scrolling=True)
     st.download_button("Scarica Grafico HTML", data=html_content, file_name=f"{html_name}.html", mime='text/html')
+
+# Ricalcola grafico da JSON salvato
+if 'mappa' in st.session_state:
+    if st.button("Ricalcola grafico da JSON"):
+        mappa = st.session_state['mappa']
+        testo = st.session_state['testo']
+        central_node = st.session_state['central_node']
+        soglia = st.session_state['soglia']
+        html_file = crea_grafo_interattivo(mappa, testo, central_node, soglia)
+        st.subheader("Anteprima Nuovo Grafico")
+        html_content = open(html_file, 'r', encoding='utf-8').read()
+        components.html(html_content, height=600, scrolling=True)
+        st.download_button("Scarica Nuovo Grafico HTML", data=html_content, file_name=f"{html_name}_recalc.html", mime='text/html')
