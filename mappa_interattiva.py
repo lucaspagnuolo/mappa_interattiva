@@ -19,10 +19,9 @@ def estrai_testo_da_pdf(file) -> str:
     testo = []
     total = pdfplumber.open(file).pages.__len__()
     progress = st.progress(0)
-    with pdfplumber.open(file) as pdf:
-        for i, pagina in enumerate(pdf.pages, 1):
-            testo.append(pagina.extract_text() or "")
-            progress.progress(i / total)
+    for i, pagina in enumerate(pdfplumber.open(file).pages, 1):
+        testo.append(pagina.extract_text() or "")
+        progress.progress(i / total)
     progress.empty()
     return "\n".join(testo)
 
@@ -72,8 +71,7 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
             "Nodo centrale: '" + central_node + "'\n"
             f"\nBlocco {idx}/{len(blocchi)}:\n{b}"
         )
-        payload = {"model": MODEL, "messages": [{"role": "user", "content": prompt}]}
-        resp = call_with_retries(payload)
+        resp = call_with_retries({"model": MODEL, "messages": [{"role": "user", "content": prompt}]})
         txt = resp.choices[0].message.content.strip()
         if txt.startswith("```"):
             lines = txt.splitlines()
@@ -87,18 +85,18 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
         progress.progress(idx / len(blocchi))
     progress.empty()
     st.success("Mappa concettuale generata")
+
     raw_nodes, raw_edges = set(), []
     for m in ris:
         for n in m.get('nodes', []):
             nid = n if isinstance(n, str) else n.get('id', '')
             raw_nodes.add(nid)
         for e in m.get('edges', []):
-            raw_edges.append({
-                'from': e.get('from'),
-                'to': e.get('to'),
-                'relation': e.get('relation', '')
-            })
-    nodes = [n for n in raw_nodes if not re.match(r'^(?:\d+|n\d+)$', str(n))]
+            raw_edges.append({'from': e.get('from'), 'to': e.get('to'), 'relation': e.get('relation', '')})
+
+    # Filtra nodi vuoti, numerici o placeholder come N1, n2, ecc.
+    nodes = [n for n in raw_nodes 
+             if isinstance(n, str) and n.strip() and not re.match(r'^(?:\d+|n\d+)$', n.strip(), flags=re.IGNORECASE)]
     edges = [e for e in raw_edges if e['from'] in nodes and e['to'] in nodes]
     return {'nodes': nodes, 'edges': edges}
 
@@ -167,6 +165,7 @@ soglia = st.number_input("Soglia", min_value=1, value=1, step=1)
 
 # Generazione mappa e grafico
 if st.button("Genera mappa e grafico") and doc:
+    start_time = time.time()
     testo = estrai_testo_da_pdf(doc)
     mappa = genera_mappa_concettuale(testo, central_node)
     # Salva nello stato
@@ -185,10 +184,13 @@ if st.button("Genera mappa e grafico") and doc:
     html_content = open(html_file, 'r', encoding='utf-8').read()
     components.html(html_content, height=600, scrolling=True)
     st.download_button("Scarica Grafico HTML", data=html_content, file_name=f"{html_name}.html", mime='text/html')
+    elapsed = time.time() - start_time
+    st.info(f"Tempo totale elaborazione: {elapsed:.2f} secondi")
 
 # Ricalcola grafico da JSON salvato
 if 'mappa' in st.session_state:
     if st.button("Ricalcola grafico da JSON"):
+        start_time = time.time()
         mappa = st.session_state['mappa']
         testo = st.session_state['testo']
         central_node = st.session_state['central_node']
@@ -198,3 +200,5 @@ if 'mappa' in st.session_state:
         html_content = open(html_file, 'r', encoding='utf-8').read()
         components.html(html_content, height=600, scrolling=True)
         st.download_button("Scarica Nuovo Grafico HTML", data=html_content, file_name=f"{html_name}_recalc.html", mime='text/html')
+        elapsed = time.time() - start_time
+        st.info(f"Tempo totale ricalcolo: {elapsed:.2f} secondi")
