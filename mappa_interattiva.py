@@ -184,8 +184,8 @@ if st.button("Genera mappa e grafico") and doc:
     html_content = open(html_file, 'r', encoding='utf-8').read()
     components.html(html_content, height=600, scrolling=True)
     st.download_button("Scarica Grafico HTML", data=html_content, file_name=f"{html_name}.html", mime='text/html')
-    elapsed = time.time() - start_time
-    st.info(f"Tempo totale elaborazione: {elapsed:.2f} secondi")
+    elapsed = (time.time() - start_time) / 60
+    st.info(f"Tempo totale elaborazione: {elapsed:.2f} minuti")
 
 # Ricalcola grafico da JSON salvato
 if 'mappa' in st.session_state:
@@ -200,5 +200,5 @@ if 'mappa' in st.session_state:
         html_content = open(html_file, 'r', encoding='utf-8').read()
         components.html(html_content, height=600, scrolling=True)
         st.download_button("Scarica Nuovo Grafico HTML", data=html_content, file_name=f"{html_name}_recalc.html", mime='text/html')
-        elapsed = time.time() - start_time
-        st.info(f"Tempo totale ricalcolo: {elapsed:.2f} secondi")
+        elapsed = (time.time() - start_time) / 60
+        st.info(f"Tempo totale ricalcolo: {elapsed:.2f} minuti")
