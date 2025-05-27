@@ -61,6 +61,7 @@ def call_with_retries(prompt_args, max_retries=5):
 def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
     """
     Genera il JSON completo della mappa concettuale (nodi, archi, tf) senza applicare soglie.
+    Filtra nodi vuoti, numerici o placeholder tipo N1, n2.
     """
     blocchi = suddividi_testo(testo)
     ris = []
@@ -88,20 +89,20 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
     progress.empty()
     st.success("Mappa concettuale generata")
 
-    # Unisco raw nodes e edges
+    # Unisco e filtro raw nodes e edges
     raw_nodes = set()
     raw_edges = []
     for m in ris:
         for n in m.get('nodes', []):
             nid = n if isinstance(n, str) else n.get('id', '')
-            if isinstance(nid, str) and nid.strip():
-                raw_nodes.add(nid.strip())
+            if isinstance(nid, str):
+                nid_str = nid.strip()
+                if nid_str and not re.match(r'^(?:\d+|n\d+)$', nid_str, flags=re.IGNORECASE):
+                    raw_nodes.add(nid_str)
         for e in m.get('edges', []):
-            raw_edges.append({
-                'from': e.get('from'),
-                'to': e.get('to'),
-                'relation': e.get('relation', '')
-            })
+            frm, to = e.get('from'), e.get('to')
+            if frm in raw_nodes and to in raw_nodes:
+                raw_edges.append({'from': frm, 'to': to, 'relation': e.get('relation', '')})
 
     # Calcolo term frequency per nodo
     tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in raw_nodes}
@@ -112,22 +113,18 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
 def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     """
     Crea un grafo filtrato in base alla soglia sul JSON completo salvato.
-    Rimuove i nodi e i relativi archi che non soddisfano la soglia.
     """
     st.info(f"Creazione grafo con soglia >= {soglia}...")
     tf = mappa.get('tf', {})
-    # Identifico vicini di primo livello dal nodo centrale
     first_level = {e['to'] for e in mappa['edges'] if e['from'] == central_node}
     removed = {n for n in first_level if tf.get(n, 0) < soglia}
     queue = list(removed)
-    # Rimuovo ricorsivamente
     while queue:
         cur = queue.pop()
         for e in mappa['edges']:
             if e['from'] == cur and e['to'] not in removed:
                 removed.add(e['to'])
                 queue.append(e['to'])
-    # Filtraggio
     filt_nodes = [n for n in mappa['nodes'] if n not in removed]
     filt_edges = [e for e in mappa['edges'] if e['from'] not in removed and e['to'] not in removed]
 
@@ -136,7 +133,6 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     for e in filt_edges:
         G.add_edge(e['from'], e['to'], relation=e.get('relation', ''))
 
-    # Community detection
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
     group = {n: i for i, comm in enumerate(communities) for n in comm}
 
@@ -148,7 +144,6 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
         spring_strength=0.001,
         damping=0.7
     )
-    # Aggiungo nodi con dimensione basata su tf
     for n in G.nodes():
         size = 10 + (tf.get(n, 0) ** 0.5) * 20
         net.add_node(
@@ -160,7 +155,6 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
             y=0 if n == central_node else None,
             fixed={'x': n == central_node, 'y': n == central_node}
         )
-    # Aggiungo archi
     for src, dst, data in G.edges(data=True):
         net.add_edge(src, dst, label=data.get('relation', ''))
     net.show_buttons(filter_=['physics', 'nodes', 'edges'])
@@ -173,7 +167,6 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
 # === STREAMLIT UI ===
 st.title("Generatore Mappa Concettuale PDF Interattivo")
 
-# Uploader e parametri base
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
 central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
 json_name = st.text_input("Nome JSON (senza estensione)", value="mappa_completa")
@@ -198,7 +191,6 @@ if st.button("Genera JSON completo") and doc:
 if 'mappa' in st.session_state:
     mappa = st.session_state['mappa']
     central_node = st.session_state['central_node']
-    # Campo di testo per soglia
     soglia_input = st.text_input("Soglia occorrenze (numero intero)", value="1")
     try:
         soglia = int(soglia_input)
