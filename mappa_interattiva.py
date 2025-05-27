@@ -59,6 +59,7 @@ def call_with_retries(prompt_args, max_retries=5):
 
 
 def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
+    # Estrapola mappa completa senza soglie
     blocchi = suddividi_testo(testo)
     ris = []
     st.info("Generazione mappa: elaborazione blocchi...")
@@ -86,25 +87,28 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
     progress.empty()
     st.success("Mappa concettuale generata")
 
+    # Unisco nodi ed edges raw
     raw_nodes, raw_edges = set(), []
     for m in ris:
         for n in m.get('nodes', []):
             nid = n if isinstance(n, str) else n.get('id', '')
-            raw_nodes.add(nid)
+            if isinstance(nid, str) and nid.strip():
+                raw_nodes.add(nid.strip())
         for e in m.get('edges', []):
             raw_edges.append({'from': e.get('from'), 'to': e.get('to'), 'relation': e.get('relation', '')})
 
-    # Filtra nodi vuoti, numerici o placeholder come N1, n2, ecc.
-    nodes = [n for n in raw_nodes 
-             if isinstance(n, str) and n.strip() and not re.match(r'^(?:\d+|n\d+)$', n.strip(), flags=re.IGNORECASE)]
-    edges = [e for e in raw_edges if e['from'] in nodes and e['to'] in nodes]
-    return {'nodes': nodes, 'edges': edges}
+    # Calcolo frequenze TF per ogni nodo
+    tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in raw_nodes}
+
+    # Produco JSON completo senza applicare soglia
+    return {'nodes': list(raw_nodes), 'edges': raw_edges, 'tf': tf}
 
 
-def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: int = 1) -> str:
-    st.info("Creazione grafo interattivo...")
-    progress = st.progress(0)
-    tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in mappa['nodes']}
+def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int = 1) -> str:
+    st.info("Creazione grafo interattivo con soglia >= %d..." % soglia)
+    # Applico soglia dinamica 
+    tf = mappa.get('tf', {})
+    # Filtra nodi sotto soglia nei vicini di primo livello
     first_level = {e['to'] for e in mappa['edges'] if e['from'] == central_node}
     removed = {n for n in first_level if tf.get(n, 0) < soglia}
     queue = list(removed)
@@ -112,93 +116,59 @@ def crea_grafo_interattivo(mappa: dict, testo: str, central_node: str, soglia: i
         cur = queue.pop()
         for e in mappa['edges']:
             if e['from'] == cur and e['to'] not in removed:
-                removed.add(e['to'])
-                queue.append(e['to'])
+                removed.add(e['to']); queue.append(e['to'])
     filt_nodes = [n for n in mappa['nodes'] if n not in removed]
     filt_edges = [e for e in mappa['edges'] if e['from'] not in removed and e['to'] not in removed]
 
+    # Costruisco grafo
     G = nx.DiGraph()
-    for i, n in enumerate(filt_nodes, 1):
-        G.add_node(n)
-        progress.progress(i / len(filt_nodes))
-    for e in filt_edges:
-        G.add_edge(e['from'], e['to'], relation=e.get('relation', ''))
-    progress.empty()
+    for n in filt_nodes: G.add_node(n)
+    for e in filt_edges: G.add_edge(e['from'], e['to'], relation=e.get('relation',''))
 
+    # Community detection e visualizzazione
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
-    group = {n: i for i, comm in enumerate(communities) for n in comm}
-
+    group = {n:i for i,comm in enumerate(communities) for n in comm}
     net = Network(directed=True, height='650px', width='100%')
-    degrees = dict(G.degree())
-    main_node = max(degrees, key=degrees.get)
-    net.force_atlas_2based(
-        gravity=-200,
-        central_gravity=0.01,
-        spring_length=800,
-        spring_strength=0.001,
-        damping=0.7
-    )
+    net.force_atlas_2based(gravity=-200, central_gravity=0.01, spring_length=800, spring_strength=0.001, damping=0.7)
+    # Dimensione nodi basata su tf
     for n in G.nodes():
-        size = 10 + (tf.get(n, 0) ** 0.5) * 20
-        if n == main_node:
-            net.add_node(n, label=n, group=group.get(n, 0), size=size, x=0, y=0, fixed={'x': True, 'y': True})
-        else:
-            net.add_node(n, label=n, group=group.get(n, 0), size=size)
-    for src, dst, data in G.edges(data=True):
-        net.add_edge(src, dst, label=data.get('relation', ''))
-    net.show_buttons(filter_=['physics', 'nodes', 'edges'])
-
-    html_file = f"temp_graph_{int(time.time())}.html"
-    net.save_graph(html_file)
+        size = 10 + (tf.get(n,0)**0.5)*20
+        net.add_node(n, label=n, group=group.get(n,0), size=size, x=0 if n==central_node else None, y=0 if n==central_node else None, fixed={'x':n==central_node,'y':n==central_node})
+    for src,dst,data in G.edges(data=True): net.add_edge(src,dst,label=data.get('relation',''))
+    net.show_buttons(filter_=['physics','nodes','edges'])
+    # Salvo
+    html_file = f"temp_graph_{int(time.time())}.html"; net.save_graph(html_file)
     st.success("Grafo generato")
     return html_file
 
 # === STREAMLIT UI ===
-st.title("Generatore Mappa Concettuale PDF")
+st.title("Generatore Mappa Concettuale PDF Interattivo")
 
-# Uploader e parametri iniziali
+# Caricamento e parametri base
 doc = st.file_uploader("Carica il file PDF", type=['pdf'])
-central_node = st.text_input("Cosa vorresti analizzare?", value="Servizio di Manutenzione")
-json_name = st.text_input("Nome file JSON (senza estensione)", value="mappa")
-html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
-soglia = st.number_input("Soglia", min_value=1, value=1, step=1)
+central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
+json_name = st.text_input("Nome JSON", value="mappa_completa")
+html_name = st.text_input("Nome HTML", value="grafico")
 
-# Generazione mappa e grafico
-if st.button("Genera mappa e grafico") and doc:
-    start_time = time.time()
+# Pulsante genera
+if st.button("Genera JSON completo") and doc:
     testo = estrai_testo_da_pdf(doc)
     mappa = genera_mappa_concettuale(testo, central_node)
-    # Salva nello stato
     st.session_state['mappa'] = mappa
-    st.session_state['testo'] = testo
     st.session_state['central_node'] = central_node
-    st.session_state['soglia'] = soglia
-    # Anteprima e download JSON
-    st.subheader("Anteprima JSON")
+    # Visualizzo JSON comprensivo di tf
+    st.subheader("JSON Completo (con tf)")
     st.json(mappa)
-    json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
-    st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
-    # Creazione e anteprima grafico
-    html_file = crea_grafo_interattivo(mappa, testo, central_node, soglia)
-    st.subheader("Anteprima Grafico Interattivo")
-    html_content = open(html_file, 'r', encoding='utf-8').read()
-    components.html(html_content, height=600, scrolling=True)
-    st.download_button("Scarica Grafico HTML", data=html_content, file_name=f"{html_name}.html", mime='text/html')
-    elapsed = (time.time() - start_time) / 60
-    st.info(f"Tempo totale elaborazione: {elapsed:.2f} minuti")
+    bytes_json = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
+    st.download_button("Scarica JSON", data=bytes_json, file_name=f"{json_name}.json", mime='application/json')
 
-# Ricalcola grafico da JSON salvato
-if 'mappa' in st.session_state:
-    if st.button("Ricalcola grafico da JSON"):
-        start_time = time.time()
-        mappa = st.session_state['mappa']
-        testo = st.session_state['testo']
-        central_node = st.session_state['central_node']
-        soglia = st.session_state['soglia']
-        html_file = crea_grafo_interattivo(mappa, testo, central_node, soglia)
-        st.subheader("Anteprima Nuovo Grafico")
-        html_content = open(html_file, 'r', encoding='utf-8').read()
-        components.html(html_content, height=600, scrolling=True)
-        st.download_button("Scarica Nuovo Grafico HTML", data=html_content, file_name=f"{html_name}_recalc.html", mime='text/html')
-        elapsed = (time.time() - start_time) / 60
-        st.info(f"Tempo totale ricalcolo: {elapsed:.2f} minuti")
+# Se JSON disponibile, slider soglia e crea grafo\if 'mappa' in st.session_state:
+    mappa = st.session_state['mappa']
+    central_node = st.session_state['central_node']
+    soglia = st.slider("Soglia occorrenze", min_value=1, max_value=max(mappa['tf'].values()), value=1)
+    if st.button("Visualizza grafo con soglia"):
+        html_file = crea_grafo_interattivo(mappa, central_node, soglia)
+        st.subheader(f"Grafo (soglia >= {soglia})")
+        content = open(html_file,'r',encoding='utf-8').read()
+        components.html(content, height=600, scrolling=True)
+        st.download_button("Scarica HTML", data=content, file_name=f"{html_name}_soglia{str(soglia)}.html", mime='text/html')
