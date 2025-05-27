@@ -59,7 +59,6 @@ def call_with_retries(prompt_args, max_retries=5):
 
 
 def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
-    # Estrapola mappa completa senza soglie
     blocchi = suddividi_testo(testo)
     ris = []
     st.info("Generazione mappa: elaborazione blocchi...")
@@ -87,28 +86,20 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
     progress.empty()
     st.success("Mappa concettuale generata")
 
-    # Unisco nodi ed edges raw
     raw_nodes, raw_edges = set(), []
     for m in ris:
         for n in m.get('nodes', []):
             nid = n if isinstance(n, str) else n.get('id', '')
-            if isinstance(nid, str) and nid.strip():
-                raw_nodes.add(nid.strip())
-        for e in m.get('edges', []):
-            raw_edges.append({'from': e.get('from'), 'to': e.get('to'), 'relation': e.get('relation', '')})
+            if isinstance(nid, str) and nid.strip(): raw_nodes.add(nid.strip())
+        for e in m.get('edges', []): raw_edges.append({'from': e.get('from'), 'to': e.get('to'), 'relation': e.get('relation', '')})
 
-    # Calcolo frequenze TF per ogni nodo
     tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in raw_nodes}
-
-    # Produco JSON completo senza applicare soglia
     return {'nodes': list(raw_nodes), 'edges': raw_edges, 'tf': tf}
 
 
 def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int = 1) -> str:
-    st.info("Creazione grafo interattivo con soglia >= %d..." % soglia)
-    # Applico soglia dinamica 
+    st.info(f"Creazione grafo interattivo con soglia >= {soglia}...")
     tf = mappa.get('tf', {})
-    # Filtra nodi sotto soglia nei vicini di primo livello
     first_level = {e['to'] for e in mappa['edges'] if e['from'] == central_node}
     removed = {n for n in first_level if tf.get(n, 0) < soglia}
     queue = list(removed)
@@ -120,23 +111,17 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int = 1) -> s
     filt_nodes = [n for n in mappa['nodes'] if n not in removed]
     filt_edges = [e for e in mappa['edges'] if e['from'] not in removed and e['to'] not in removed]
 
-    # Costruisco grafo
     G = nx.DiGraph()
     for n in filt_nodes: G.add_node(n)
     for e in filt_edges: G.add_edge(e['from'], e['to'], relation=e.get('relation',''))
 
-    # Community detection e visualizzazione
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
     group = {n:i for i,comm in enumerate(communities) for n in comm}
     net = Network(directed=True, height='650px', width='100%')
     net.force_atlas_2based(gravity=-200, central_gravity=0.01, spring_length=800, spring_strength=0.001, damping=0.7)
-    # Dimensione nodi basata su tf
-    for n in G.nodes():
-        size = 10 + (tf.get(n,0)**0.5)*20
-        net.add_node(n, label=n, group=group.get(n,0), size=size, x=0 if n==central_node else None, y=0 if n==central_node else None, fixed={'x':n==central_node,'y':n==central_node})
+    for n in G.nodes(): size = 10 + (tf.get(n,0)**0.5)*20; net.add_node(n, label=n, group=group.get(n,0), size=size, x=0 if n==central_node else None, y=0 if n==central_node else None, fixed={'x':n==central_node,'y':n==central_node})
     for src,dst,data in G.edges(data=True): net.add_edge(src,dst,label=data.get('relation',''))
     net.show_buttons(filter_=['physics','nodes','edges'])
-    # Salvo
     html_file = f"temp_graph_{int(time.time())}.html"; net.save_graph(html_file)
     st.success("Grafo generato")
     return html_file
@@ -144,31 +129,35 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int = 1) -> s
 # === STREAMLIT UI ===
 st.title("Generatore Mappa Concettuale PDF Interattivo")
 
-# Caricamento e parametri base
 doc = st.file_uploader("Carica il file PDF", type=['pdf'])
 central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
 json_name = st.text_input("Nome JSON", value="mappa_completa")
 html_name = st.text_input("Nome HTML", value="grafico")
 
-# Pulsante genera
+# Generazione JSON completo
 if st.button("Genera JSON completo") and doc:
     testo = estrai_testo_da_pdf(doc)
     mappa = genera_mappa_concettuale(testo, central_node)
     st.session_state['mappa'] = mappa
     st.session_state['central_node'] = central_node
-    # Visualizzo JSON comprensivo di tf
     st.subheader("JSON Completo (con tf)")
     st.json(mappa)
     bytes_json = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
     st.download_button("Scarica JSON", data=bytes_json, file_name=f"{json_name}.json", mime='application/json')
 
-# Se JSON disponibile, slider soglia e crea grafo\if 'mappa' in st.session_state:
+# Input soglia manuale e visualizzazione grafo
+if 'mappa' in st.session_state:
     mappa = st.session_state['mappa']
     central_node = st.session_state['central_node']
-    soglia = st.slider("Soglia occorrenze", min_value=1, max_value=max(mappa['tf'].values()), value=1)
-    if st.button("Visualizza grafo con soglia"):
+    soglia_input = st.text_input("Soglia occorrenze (numero intero)", value="1")
+    try:
+        soglia = int(soglia_input)
+    except ValueError:
+        st.error("Inserisci un numero intero valido per la soglia.")
+        soglia = None
+    if soglia is not None and st.button("Visualizza grafo con soglia"):
         html_file = crea_grafo_interattivo(mappa, central_node, soglia)
         st.subheader(f"Grafo (soglia >= {soglia})")
-        content = open(html_file,'r',encoding='utf-8').read()
+        content = open(html_file, 'r', encoding='utf-8').read()
         components.html(content, height=600, scrolling=True)
-        st.download_button("Scarica HTML", data=content, file_name=f"{html_name}_soglia{str(soglia)}.html", mime='text/html')
+        st.download_button("Scarica HTML", data=content, file_name=f"{html_name}_soglia{soglia}.html", mime='text/html')
