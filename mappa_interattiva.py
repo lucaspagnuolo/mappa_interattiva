@@ -104,28 +104,32 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
 
 
 def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
+    """
+    Crea un grafo filtrato in base alla soglia sul JSON completo salvato.
+    Rimuove i nodi con tf < soglia e tutti i nodi non raggiungibili dal nodo centrale.
+    Include solo i nodi raggiungibili (figli, nipoti, ecc.) dal nodo centrale.
+    """
     st.info(f"Creazione grafo con soglia >= {soglia}...")
     tf = mappa.get('tf', {})
-    first_level = {e['to'] for e in mappa['edges'] if e['from'] == central_node}
-    removed = {n for n in first_level if tf.get(n, 0) < soglia}
-    queue = list(removed)
-    while queue:
-        cur = queue.pop()
-        for e in mappa['edges']:
-            if e['from'] == cur and e['to'] not in removed:
-                removed.add(e['to'])
-                queue.append(e['to'])
-    filt_nodes = [n for n in mappa['nodes'] if n not in removed]
-    filt_edges = [e for e in mappa['edges'] if e['from'] not in removed and e['to'] not in removed]
-
-    G = nx.DiGraph()
-    G.add_nodes_from(filt_nodes)
-    for e in filt_edges:
-        G.add_edge(e['from'], e['to'], relation=e.get('relation', ''))
-
+    # Seleziono nodi che soddisfano soglia o il nodo centrale
+    valid_nodes = {n for n, count in tf.items() if count >= soglia} | {central_node}
+    # Costruisco grafo diretto filtrato da threshold
+    G_full = nx.DiGraph()
+    G_full.add_nodes_from(valid_nodes)
+    for e in mappa['edges']:
+        frm, to = e['from'], e['to']
+        if frm in valid_nodes and to in valid_nodes:
+            G_full.add_edge(frm, to, relation=e.get('relation', ''))
+    # Trovo solo nodi raggiungibili dal centrale
+    reachable = {central_node}
+    if central_node in G_full:
+        reachable |= nx.descendants(G_full, central_node)
+    # Costruisco sotto-grafo dei raggiungibili
+    G = G_full.subgraph(reachable).copy()
+    # Community detection
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
     group = {n: i for i, comm in enumerate(communities) for n in comm}
-
+    # Visualizzazione PyVis
     net = Network(directed=True, height='650px', width='100%')
     net.force_atlas_2based(
         gravity=-200,
@@ -148,52 +152,7 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     for src, dst, data in G.edges(data=True):
         net.add_edge(src, dst, label=data.get('relation', ''))
     net.show_buttons(filter_=['physics', 'nodes', 'edges'])
-
     html_file = f"temp_graph_{int(time.time())}.html"
     net.save_graph(html_file)
     st.success("Grafo generato")
     return html_file
-
-# === STREAMLIT UI ===
-st.title("Generatore Mappa Concettuale PDF Interattivo")
-
-# 1) Caricamento PDF e parametri base
-doc = st.file_uploader("Carica il PDF", type=['pdf'])
-central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
-json_name = st.text_input("Nome JSON (senza estensione)", value="mappa_completa")
-html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
-
-# 2) Genera JSON completo
-if st.button("Genera JSON completo") and doc:
-    start_time = time.time()
-    testo = estrai_testo_da_pdf(doc)
-    mappa = genera_mappa_concettuale(testo, central_node)
-    st.session_state['mappa'] = mappa
-    st.session_state['testo'] = testo
-    st.session_state['central_node'] = central_node
-    elapsed = (time.time() - start_time) / 60
-    st.info(f"JSON generato in {elapsed:.2f} minuti")
-    st.subheader("JSON Completo (con tf)")
-    st.json(mappa)
-    json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
-    st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
-
-# 3) Input soglia e creazione grafo (dopo JSON)
-if 'mappa' in st.session_state:
-    mappa = st.session_state['mappa']
-    central_node = st.session_state['central_node']
-    st.subheader("Seleziona soglia per filtro nodo")
-    soglia_input = st.text_input("Soglia occorrenze (numero intero)", value="1")
-    if st.button("Visualizza grafo con soglia"):
-        try:
-            soglia = int(soglia_input)
-            start_time = time.time()
-            html_file = crea_grafo_interattivo(mappa, central_node, soglia)
-            elapsed = (time.time() - start_time) / 60
-            st.info(f"Grafo generato in {elapsed:.2f} minuti (soglia >= {soglia})")
-            st.subheader(f"Grafo (soglia >= {soglia})")
-            content = open(html_file, 'r', encoding='utf-8').read()
-            components.html(content, height=600, scrolling=True)
-            st.download_button("Scarica HTML", data=content, file_name=f"{html_name}_s{soglia}.html", mime='text/html')
-        except ValueError:
-            st.error("Inserisci un numero intero valido per la soglia.")
