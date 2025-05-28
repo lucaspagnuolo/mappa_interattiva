@@ -14,6 +14,7 @@ client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
 
 # === FUNZIONI DI BACKEND ===
+
 def estrai_testo_da_pdf(file) -> str:
     testo = []
     with pdfplumber.open(file) as pdf:
@@ -67,8 +68,7 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
         prompt = (
             "Rispondi SOLO con un JSON valido contenente i campi 'nodes' e 'edges'."
             " Includi nodes ed edges con campi 'from','to','relation'."
-            " Nodo centrale: '" + central_node + "'\n"
-            f"\nBlocco {idx}/{len(blocchi)}:\n{b}"
+            f" Nodo centrale: '{central_node}'\n\nBlocco {idx}/{len(blocchi)}:\n{b}"
         )
         resp = call_with_retries({"model": MODEL, "messages": [{"role": "user", "content": prompt}]})
         txt = resp.choices[0].message.content.strip()
@@ -85,73 +85,81 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
     progress.empty()
     st.success("Mappa concettuale generata")
 
+    # Aggrega nodi e archi validi
     raw_nodes = set()
     raw_edges = []
     for m in ris:
         for n in m.get('nodes', []):
             nid = n if isinstance(n, str) else n.get('id', '')
-            if isinstance(nid, str):
-                nid_str = nid.strip()
-                if nid_str and not re.match(r'^(?:\d+|n\d+)$', nid_str, flags=re.IGNORECASE):
-                    raw_nodes.add(nid_str)
+            nid_str = nid.strip()
+            if nid_str and not re.match(r'^(?:\d+|n\d+)$', nid_str, flags=re.IGNORECASE):
+                raw_nodes.add(nid_str)
         for e in m.get('edges', []):
-            frm, to = e.get('from'), e.get('to')
+            frm, to, rel = e.get('from'), e.get('to'), e.get('relation', '')
             if frm in raw_nodes and to in raw_nodes:
-                raw_edges.append({'from': frm, 'to': to, 'relation': e.get('relation', '')})
+                raw_edges.append({'from': frm, 'to': to, 'relation': rel})
 
+    # Calcola tf per nodi
     tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in raw_nodes}
-    return {'nodes': list(raw_nodes), 'edges': raw_edges, 'tf': tf}
+
+    # Calcola strength per relazioni
+    # unica tripla (frm,to,rel)
+    unique_rels = {(e['from'], e['to'], e['relation']) for e in raw_edges}
+    rel_strength = {}
+    for frm, to, rel in unique_rels:
+        # cerca pattern "frm ... rel ... to"
+        pattern = rf"\b{re.escape(frm)}\b.*?\b{re.escape(rel)}\b.*?\b{re.escape(to)}\b"
+        count = len(re.findall(pattern, testo, flags=re.IGNORECASE | re.DOTALL))
+        rel_strength[(frm, to, rel)] = count
+
+    # Costruisci JSON finale
+    return {
+        'nodes': list(raw_nodes),
+        'edges': raw_edges,
+        'tf': tf,
+        'relation_strength': [
+            {'from': frm, 'to': to, 'relation': rel, 'count': rel_strength[(frm, to, rel)]}
+            for frm, to, rel in unique_rels
+        ]
+    }
 
 
 def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
-    """
-    Crea un grafo filtrato in base alla soglia sul JSON completo salvato.
-    Rimuove i nodi con tf < soglia e tutti i nodi non raggiungibili dal nodo centrale.
-    Include solo i nodi raggiungibili (figli, nipoti, ecc.) dal nodo centrale.
-    """
     st.info(f"Creazione grafo con soglia >= {soglia}...")
     tf = mappa.get('tf', {})
-    # Seleziono nodi che soddisfano soglia o il nodo centrale
-    valid_nodes = {n for n, count in tf.items() if count >= soglia} | {central_node}
-    # Costruisco grafo diretto filtrato da threshold
+    valid_nodes = {n for n, c in tf.items() if c >= soglia} | {central_node}
     G_full = nx.DiGraph()
     G_full.add_nodes_from(valid_nodes)
     for e in mappa['edges']:
-        frm, to = e['from'], e['to']
-        if frm in valid_nodes and to in valid_nodes:
-            G_full.add_edge(frm, to, relation=e.get('relation', ''))
-    # Trovo solo nodi raggiungibili dal centrale
+        if e['from'] in valid_nodes and e['to'] in valid_nodes:
+            G_full.add_edge(e['from'], e['to'], relation=e['relation'])
     reachable = {central_node}
     if central_node in G_full:
         reachable |= nx.descendants(G_full, central_node)
-    # Costruisco sotto-grafo dei raggiungibili
     G = G_full.subgraph(reachable).copy()
-    # Community detection
+
+    # community detection
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
     group = {n: i for i, comm in enumerate(communities) for n in comm}
-    # Visualizzazione PyVis
+
+    # relazione strength dict
+    rel_strength_dict = { (r['from'],r['to'],r['relation']): r['count'] for r in mappa['relation_strength'] }
+
     net = Network(directed=True, height='650px', width='100%')
-    net.force_atlas_2based(
-        gravity=-200,
-        central_gravity=0.01,
-        spring_length=800,
-        spring_strength=0.001,
-        damping=0.7
-    )
+    net.force_atlas_2based(gravity=-200, central_gravity=0.01, spring_length=800, spring_strength=0.001, damping=0.7)
     for n in G.nodes():
-        size = 10 + (tf.get(n, 0) ** 0.5) * 20
-        net.add_node(
-            n,
-            label=n,
-            group=group.get(n, 0),
-            size=size,
-            x=0 if n == central_node else None,
-            y=0 if n == central_node else None,
-            fixed={'x': n == central_node, 'y': n == central_node}
-        )
-    for src, dst, data in G.edges(data=True):
-        net.add_edge(src, dst, label=data.get('relation', ''))
-    net.show_buttons(filter_=['physics', 'nodes', 'edges'])
+        size = 10 + (tf.get(n,0)**0.5)*20
+        net.add_node(n, label=n, group=group.get(n,0), size=size,
+                     x=0 if n==central_node else None, y=0 if n==central_node else None,
+                     fixed={'x':n==central_node,'y':n==central_node})
+    for src,dst,data in G.edges(data=True):
+        # calcola larghezza in base a strength
+        key = (src,dst,data.get('relation',''))
+        count = rel_strength_dict.get(key, 0)
+        width = 1 + count*0.5
+        net.add_edge(src, dst, label=f"{data.get('relation','')} ({count})", width=width)
+
+    net.show_buttons(filter_=['physics','nodes','edges'])
     html_file = f"temp_graph_{int(time.time())}.html"
     net.save_graph(html_file)
     st.success("Grafo generato")
@@ -159,44 +167,26 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
 
 # === STREAMLIT UI ===
 st.title("Generatore Mappa Concettuale PDF Interattivo")
-
-# 1) Caricamento PDF e parametri base
+# caricamento
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
-central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
-json_name = st.text_input("Nome JSON (senza estensione)", value="mappa_completa")
-html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
+central_node = st.text_input("Nodo centrale", "Servizio di Manutenzione")
+json_name = st.text_input("Nome JSON (senza estensione)", "mappa_completa")
+html_name = st.text_input("Nome file HTML (senza estensione)", "grafico")
 
-# 2) Genera JSON completo
 if st.button("Genera JSON completo") and doc:
-    start_time = time.time()
+    start = time.time()
     testo = estrai_testo_da_pdf(doc)
     mappa = genera_mappa_concettuale(testo, central_node)
-    st.session_state['mappa'] = mappa
-    st.session_state['testo'] = testo
-    st.session_state['central_node'] = central_node
-    elapsed = (time.time() - start_time) / 60
-    st.info(f"JSON generato in {elapsed:.2f} minuti")
-    st.subheader("JSON Completo (con tf)")
+    st.session_state['mappa'], st.session_state['testo'], st.session_state['central_node'] = mappa, testo, central_node
+    st.info(f"JSON generato in {(time.time()-start)/60:.2f} minuti")
     st.json(mappa)
-    json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
-    st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
+    st.download_button("Scarica JSON", json.dumps(mappa, ensure_ascii=False, indent=2), f"{json_name}.json")
 
-# 3) Input soglia e creazione grafo (dopo JSON)
 if 'mappa' in st.session_state:
-    mappa = st.session_state['mappa']
-    central_node = st.session_state['central_node']
-    st.subheader("Seleziona soglia per filtro nodo")
-    soglia_input = st.text_input("Soglia occorrenze (numero intero)", value="1")
+    soglia = st.number_input("Soglia occorrenze (numero intero)", min_value=1, value=1)
     if st.button("Visualizza grafo con soglia"):
-        try:
-            soglia = int(soglia_input)
-            start_time = time.time()
-            html_file = crea_grafo_interattivo(mappa, central_node, soglia)
-            elapsed = (time.time() - start_time) / 60
-            st.info(f"Grafo generato in {elapsed:.2f} minuti (soglia >= {soglia})")
-            st.subheader(f"Grafo (soglia >= {soglia})")
-            content = open(html_file, 'r', encoding='utf-8').read()
-            components.html(content, height=600, scrolling=True)
-            st.download_button("Scarica HTML", data=content, file_name=f"{html_name}_s{soglia}.html", mime='text/html')
-        except ValueError:
-            st.error("Inserisci un numero intero valido per la soglia.")
+        html_file = crea_grafo_interattivo(st.session_state['mappa'], st.session_state['central_node'], soglia)
+        with open(html_file,'r',encoding='utf-8') as f:
+            content = f.read()
+        components.html(content, height=600)
+        st.download_button("Scarica HTML", content, f"{html_name}_s{soglia}.html")
