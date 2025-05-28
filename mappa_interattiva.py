@@ -183,10 +183,21 @@ if st.button("Genera JSON completo") and doc:
     st.download_button("Scarica JSON", json.dumps(mappa, ensure_ascii=False, indent=2), f"{json_name}.json")
 
 if 'mappa' in st.session_state:
-    soglia = st.number_input("Soglia occorrenze (numero intero)", min_value=1, value=1)
-    if st.button("Visualizza grafo con soglia"):
-        html_file = crea_grafo_interattivo(st.session_state['mappa'], st.session_state['central_node'], soglia)
-        with open(html_file,'r',encoding='utf-8') as f:
+    st.subheader("Seleziona soglia per filtro nodo")
+    soglia_str = st.text_input("Soglia occorrenze (numero intero)", value="1")
+    soglia = None
+    try:
+        soglia = int(soglia_str)
+    except ValueError:
+        if soglia_str:
+            st.error("Inserisci un numero intero valido per la soglia")
+    if soglia is not None and st.button("Visualizza grafo con soglia"):
+        html_file = crea_grafo_interattivo(
+            st.session_state['mappa'],
+            st.session_state['central_node'],
+            soglia
+        )
+        with open(html_file, 'r', encoding='utf-8') as f:
             content = f.read()
         components.html(content, height=600)
-        st.download_button("Scarica HTML", content, f"{html_name}_s{soglia}.html")
+        st.download_button("Scarica HTML", content, file_name=f"{html_name}_s{soglia}.html")
