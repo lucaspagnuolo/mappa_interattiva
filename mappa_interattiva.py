@@ -109,22 +109,25 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     Rimuove i nodi con tf < soglia e tutti i nodi non raggiungibili dal nodo centrale.
     Include solo i nodi raggiungibili (figli, nipoti, ecc.) dal nodo centrale.
     """
-    st.info(f"Creazione grafo con soglia >= {soglia}...")
+    st.info(f"Creazione grafo con soglia >= {soglia}... (filtrando archi con tf< soglia)")
     tf = mappa.get('tf', {})
-    # Seleziono nodi che soddisfano soglia o il nodo centrale
-    valid_nodes = {n for n, count in tf.items() if count >= soglia} | {central_node}
-    # Costruisco grafo diretto filtrato da threshold
+    # Costruisco grafo diretto di soli nodi validi (tf>=soglia)
     G_full = nx.DiGraph()
+    # Aggiungo nodi validi
+    valid_nodes = {n for n, count in tf.items() if count >= soglia}
+    # Assicuro che centrale sia nel set
+    valid_nodes.add(central_node)
     G_full.add_nodes_from(valid_nodes)
+    # Aggiungo archi tra nodi validi
     for e in mappa['edges']:
         frm, to = e['from'], e['to']
         if frm in valid_nodes and to in valid_nodes:
-            G_full.add_edge(frm, to, relation=e.get('relation', ''))
-    # Trovo solo nodi raggiungibili dal centrale
-    reachable = {central_node}
+            G_full.add_edge(frm, to, relation=e.get('relation',''))
+    # Individuo tutti i nodi raggiungibili dal nodo centrale
+    reachable = set()
     if central_node in G_full:
-        reachable |= nx.descendants(G_full, central_node)
-    # Costruisco sotto-grafo dei raggiungibili
+        reachable = {central_node} | nx.descendants(G_full, central_node)
+    # Build sotto-grafo solo raggiungibili
     G = G_full.subgraph(reachable).copy()
     # Community detection
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
@@ -139,19 +142,20 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
         damping=0.7
     )
     for n in G.nodes():
-        size = 10 + (tf.get(n, 0) ** 0.5) * 20
+        size = 10 + (tf.get(n,0)**0.5)*20
         net.add_node(
             n,
             label=n,
-            group=group.get(n, 0),
+            group=group.get(n,0),
             size=size,
-            x=0 if n == central_node else None,
-            y=0 if n == central_node else None,
-            fixed={'x': n == central_node, 'y': n == central_node}
+            x=0 if n==central_node else None,
+            y=0 if n==central_node else None,
+            fixed={'x':n==central_node,'y':n==central_node}
         )
-    for src, dst, data in G.edges(data=True):
-        net.add_edge(src, dst, label=data.get('relation', ''))
-    net.show_buttons(filter_=['physics', 'nodes', 'edges'])
+    for src, dst in G.edges():
+        rel = G[src][dst].get('relation','')
+        net.add_edge(src, dst, label=rel)
+    net.show_buttons(filter_=['physics','nodes','edges'])
     html_file = f"temp_graph_{int(time.time())}.html"
     net.save_graph(html_file)
     st.success("Grafo generato")
