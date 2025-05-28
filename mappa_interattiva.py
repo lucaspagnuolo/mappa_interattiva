@@ -95,25 +95,28 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
                 if nid_str and not re.match(r'^(?:\d+|n\d+)$', nid_str, flags=re.IGNORECASE):
                     raw_nodes.add(nid_str)
         for e in m.get('edges', []):
-            frm, to = e.get('from'), e.get('to')
+            frm, to = e['from'], e['to']
             if frm in raw_nodes and to in raw_nodes:
-                raw_edges.append({'from': frm, 'to': to, 'relation': e.get('relation', '')})
+                raw_edges.append({
+                    'from': frm,
+                    'to': to,
+                    'relation': e.get('relation', '')
+                })
 
-    tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in raw_nodes}
+    tf = {
+        n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE))
+        for n in raw_nodes
+    }
     return {'nodes': list(raw_nodes), 'edges': raw_edges, 'tf': tf}
 
 def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
-    """
-    Crea un grafo filtrato in base alla soglia sul JSON completo salvato.
-    Rimuove i nodi con tf < soglia e tutti i nodi non raggiungibili dal nodo centrale.
-    """
     st.info(f"Creazione grafo con soglia >= {soglia}...")
     tf = mappa.get('tf', {})
 
-    # 1) Identifica i nodi sopra soglia + il nodo centrale
+    # 1) Nodi validi: sopra soglia + centrale
     valid_nodes = {n for n, cnt in tf.items() if cnt >= soglia} | {central_node}
 
-    # 2) Costruisci il grafo intero filtrato su valid_nodes
+    # 2) Grafo filtrato
     G_full = nx.DiGraph()
     G_full.add_nodes_from(valid_nodes)
     for e in mappa['edges']:
@@ -121,15 +124,15 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
         if frm in valid_nodes and to in valid_nodes:
             G_full.add_edge(frm, to, relation=e.get('relation', ''))
 
-    # 3) Calcola i nodi raggiungibili dal centrale (discendenti diretti e indiretti)
-    reachable = set()
+    # 3) Discendenti del centrale
+    reachable = {central_node}
     if central_node in G_full:
-        reachable = {central_node} | nx.descendants(G_full, central_node)
+        reachable |= nx.descendants(G_full, central_node)
 
-    # 4) Costruisci il sotto-grafo con solo i raggiungibili
+    # 4) Sotto‐grafo finale
     G = G_full.subgraph(reachable).copy()
 
-    # 5) Community detection per raggruppamenti
+    # 5) Community detection
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
     group = {n: i for i, comm in enumerate(communities) for n in comm}
 
@@ -163,13 +166,32 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
 def main():
     st.title("Generatore di Mappa Concettuale")
     uploaded_file = st.file_uploader("Carica un PDF", type=["pdf"])
+    # Nodo centrale fisso di default
     central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
-    soglia = st.slider("Soglia di frequenza (tf)", min_value=0, max_value=100, value=1)
+
     if uploaded_file and central_node:
+        # 1) Estrai testo e genera mappa + tf
         testo = estrai_testo_da_pdf(uploaded_file)
         mappa = genera_mappa_concettuale(testo, central_node)
-        html_path = crea_grafo_interattivo(mappa, central_node, soglia)
-        components.html(open(html_path, "r").read(), height=650, width=800)
+
+        # 2) Mostro riepilogo tf per suggerire la soglia
+        tf = mappa['tf']
+        valori = sorted(set(tf.values()))
+        st.write("Valori TF unici trovati nei nodi:", valori)
+        st.write("Scegli una soglia fra questi valori (ad es. il valore mediano oppure un numero più alto per filtrare di più).")
+
+        # 3) Input testuale per soglia
+        soglia_str = st.text_input("Inserisci soglia di frequenza (tf)", value="1")
+        try:
+            soglia = int(soglia_str)
+        except ValueError:
+            st.error("La soglia deve essere un numero intero.")
+            return
+
+        # 4) Bottone per generare il grafo con la soglia scelta
+        if st.button("Genera grafo"):
+            html_path = crea_grafo_interattivo(mappa, central_node, soglia)
+            components.html(open(html_path, "r").read(), height=650, width=800)
 
 if __name__ == "__main__":
     main()
