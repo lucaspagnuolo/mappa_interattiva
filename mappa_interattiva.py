@@ -1,5 +1,3 @@
-## #### con il filtro su json completo + ft che funzionava bene ieri
-
 import os
 import json
 import re
