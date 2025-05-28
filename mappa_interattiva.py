@@ -8,6 +8,7 @@ from mistralai import Mistral, SDKError
 from pyvis.network import Network
 import streamlit as st
 import streamlit.components.v1 as components
+import random
 
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
@@ -99,20 +100,15 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
             if frm in raw_nodes and to in raw_nodes:
                 raw_edges.append({'from': frm, 'to': to, 'relation': rel})
 
-    # Calcola tf per nodi
     tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in raw_nodes}
 
-    # Calcola strength per relazioni
-    # unica tripla (frm,to,rel)
     unique_rels = {(e['from'], e['to'], e['relation']) for e in raw_edges}
     rel_strength = {}
     for frm, to, rel in unique_rels:
-        # cerca pattern "frm ... rel ... to"
         pattern = rf"\b{re.escape(frm)}\b.*?\b{re.escape(rel)}\b.*?\b{re.escape(to)}\b"
         count = len(re.findall(pattern, testo, flags=re.IGNORECASE | re.DOTALL))
         rel_strength[(frm, to, rel)] = count
 
-    # Costruisci JSON finale
     return {
         'nodes': list(raw_nodes),
         'edges': raw_edges,
@@ -133,34 +129,46 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     for e in mappa['edges']:
         if e['from'] in valid_nodes and e['to'] in valid_nodes:
             G_full.add_edge(e['from'], e['to'], relation=e['relation'])
+
     reachable = {central_node}
     if central_node in G_full:
         reachable |= nx.descendants(G_full, central_node)
     G = G_full.subgraph(reachable).copy()
 
-    # community detection
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
     group = {n: i for i, comm in enumerate(communities) for n in comm}
 
-    # relazione strength dict
-        # relazione strength dict (usa get per sicurezza se chiave non esiste)
-    rel_strength_dict = { (r['from'], r['to'], r['relation']): r.get('count', 0) \
+    # Colori coerenti per ogni gruppo (bordo + sfondo)
+    def genera_colore():
+        return "#%06x" % random.randint(0, 0xFFFFFF)
+
+    colori_gruppo = {i: genera_colore() for i in set(group.values())}
+
+    rel_strength_dict = { (r['from'], r['to'], r['relation']): r.get('count', 0)
                          for r in mappa.get('relation_strength', []) }
+
     net = Network(directed=True, height='650px', width='100%')
     net.force_atlas_2based(gravity=-200, central_gravity=0.01, spring_length=800, spring_strength=0.001, damping=0.7)
-    for n in G.nodes():
-        size = 10 + (tf.get(n,0)**0.5)*20
-        net.add_node(n, label=n, group=group.get(n,0), size=size,
-                     x=0 if n==central_node else None, y=0 if n==central_node else None,
-                     fixed={'x':n==central_node,'y':n==central_node})
-    for src,dst,data in G.edges(data=True):
-        # calcola larghezza in base a strength
-        key = (src,dst,data.get('relation',''))
-        count = rel_strength_dict.get(key, 0)
-        width = 1 + count*0.5
-        net.add_edge(src, dst, label=f"{data.get('relation','')} ({count})", width=width)
 
-    net.show_buttons(filter_=['physics','nodes','edges'])
+    for n in G.nodes():
+        g = group.get(n, 0)
+        colore = colori_gruppo[g]
+        size = 10 + (tf.get(n, 0)**0.5) * 20
+        net.add_node(
+            n, label=n, size=size,
+            color={'background': colore, 'border': colore},
+            x=0 if n == central_node else None,
+            y=0 if n == central_node else None,
+            fixed={'x': n == central_node, 'y': n == central_node}
+        )
+
+    for src, dst, data in G.edges(data=True):
+        key = (src, dst, data.get('relation', ''))
+        count = rel_strength_dict.get(key, 0)
+        width = 1 + count * 0.5
+        net.add_edge(src, dst, label=f"{data.get('relation', '')} ({count})", width=width)
+
+    net.show_buttons(filter_=['physics', 'nodes', 'edges'])
     html_file = f"temp_graph_{int(time.time())}.html"
     net.save_graph(html_file)
     st.success("Grafo generato")
@@ -168,7 +176,6 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
 
 # === STREAMLIT UI ===
 st.title("Generatore Mappa Concettuale PDF Interattivo")
-# caricamento
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
 central_node = st.text_input("Nodo centrale", "Servizio di Manutenzione")
 json_name = st.text_input("Nome JSON (senza estensione)", "mappa_completa")
