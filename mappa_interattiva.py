@@ -163,7 +163,7 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
 def main():
     st.title("Generatore di Mappa Concettuale")
     uploaded_file = st.file_uploader("Carica un PDF", type=["pdf"])
-    central_node = st.text_input("Nodo centrale", value="Concetto")
+    central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
     soglia = st.slider("Soglia di frequenza (tf)", min_value=0, max_value=100, value=1)
     if uploaded_file and central_node:
         testo = estrai_testo_da_pdf(uploaded_file)
