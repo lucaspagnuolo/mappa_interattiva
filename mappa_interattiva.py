@@ -39,12 +39,24 @@ def normalizza_nodi_per_similarita(nodi: set[str], edges: list[dict], threshold:
         visited.add(nodi[i])
 
     nuovi_nodi = {mapping[n] for n in nodi}
-    nuovi_edges = []
+
+    # Aggregazione e somma delle forze (count) sugli archi normalizzati
+    edge_dict = {}
     for e in edges:
         frm = mapping.get(e['from'], e['from'])
         to = mapping.get(e['to'], e['to'])
         rel = e.get('relation', '')
-        nuovi_edges.append({'from': frm, 'to': to, 'relation': rel})
+        # Usa count o weight se presente, altrimenti 1
+        count = e.get('count', 1)
+
+        key = (frm, to, rel)
+        edge_dict[key] = edge_dict.get(key, 0) + count
+
+    # Ora applichiamo scaling logaritmico sulla forza (width)
+    nuovi_edges = []
+    for (frm, to, rel), count in edge_dict.items():
+        width = 1 + math.log(count + 1) * 10  # Scaling logaritmico come richiesto
+        nuovi_edges.append({'from': frm, 'to': to, 'relation': rel, 'count': count, 'width': width})
 
     return nuovi_nodi, nuovi_edges
 # === FUNZIONI DI BACKEND ===
