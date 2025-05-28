@@ -14,6 +14,39 @@ import random
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
 
+# === FUNZIONI DI NORMALIZZAZIONE ===
+
+def normalizza_nodi_per_similarita(nodi: set[str], edges: list[dict], threshold: float = 0.8) -> tuple[set[str], list[dict]]:
+    nodi = list(nodi)
+    vectorizer = TfidfVectorizer().fit(nodi)
+    tfidf_matrix = vectorizer.transform(nodi)
+    cosine_sim = cosine_similarity(tfidf_matrix)
+
+    mapping = {}
+    visited = set()
+
+    for i in range(len(nodi)):
+        if nodi[i] in visited:
+            continue
+        gruppo = [nodi[i]]
+        for j in range(i+1, len(nodi)):
+            if cosine_sim[i, j] >= threshold:
+                gruppo.append(nodi[j])
+                visited.add(nodi[j])
+        rappresentante = gruppo[0]
+        for membro in gruppo:
+            mapping[membro] = rappresentante
+        visited.add(nodi[i])
+
+    nuovi_nodi = {mapping[n] for n in nodi}
+    nuovi_edges = []
+    for e in edges:
+        frm = mapping.get(e['from'], e['from'])
+        to = mapping.get(e['to'], e['to'])
+        rel = e.get('relation', '')
+        nuovi_edges.append({'from': frm, 'to': to, 'relation': rel})
+
+    return nuovi_nodi, nuovi_edges
 # === FUNZIONI DI BACKEND ===
 
 def estrai_testo_da_pdf(file) -> str:
@@ -67,9 +100,9 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
     progress = st.progress(0)
     for idx, b in enumerate(blocchi, 1):
         prompt = (
-            "Rispondi SOLO con un JSON valido contenente i campi 'nodes' e 'edges'."
-            " Includi nodes ed edges con campi 'from','to','relation'."
-            f" Nodo centrale: '{central_node}'\n\nBlocco {idx}/{len(blocchi)}:\n{b}"
+            "Rispondi SOLO con un JSON valido contenente i campi 'nodes' e 'edges'. "
+            "Includi nodes ed edges con campi 'from','to','relation'. "
+            f"Nodo centrale: '{central_node}'\n\nBlocco {idx}/{len(blocchi)}:\n{b}"
         )
         resp = call_with_retries({"model": MODEL, "messages": [{"role": "user", "content": prompt}]})
         txt = resp.choices[0].message.content.strip()
@@ -97,12 +130,17 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
                 raw_nodes.add(nid_str)
         for e in m.get('edges', []):
             frm, to, rel = e.get('from'), e.get('to'), e.get('relation', '')
-            if frm in raw_nodes and to in raw_nodes:
-                raw_edges.append({'from': frm, 'to': to, 'relation': rel})
+            if frm and to:
+                raw_edges.append({'from': frm.strip(), 'to': to.strip(), 'relation': rel})
 
-    tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in raw_nodes}
+    # === Normalizzazione per similarità semantica
+    nodi_normalizzati, archi_normalizzati = normalizza_nodi_per_similarita(raw_nodes, raw_edges)
 
-    unique_rels = {(e['from'], e['to'], e['relation']) for e in raw_edges}
+    # Frequenze
+    tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in nodi_normalizzati}
+
+    # Forza relazione
+    unique_rels = {(e['from'], e['to'], e['relation']) for e in archi_normalizzati}
     rel_strength = {}
     for frm, to, rel in unique_rels:
         pattern = rf"\b{re.escape(frm)}\b.*?\b{re.escape(rel)}\b.*?\b{re.escape(to)}\b"
@@ -110,8 +148,8 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
         rel_strength[(frm, to, rel)] = count
 
     return {
-        'nodes': list(raw_nodes),
-        'edges': raw_edges,
+        'nodes': list(nodi_normalizzati),
+        'edges': archi_normalizzati,
         'tf': tf,
         'relation_strength': [
             {'from': frm, 'to': to, 'relation': rel, 'count': rel_strength[(frm, to, rel)]}
