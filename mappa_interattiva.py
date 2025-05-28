@@ -143,9 +143,9 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     group = {n: i for i, comm in enumerate(communities) for n in comm}
 
     # relazione strength dict
-    rel_strength_dict = { (r['from'],r['to'],r['relation']): r['count'] for r in mappa['relation_strength'] }
-
-    net = Network(directed=True, height='650px', width='100%')
+        # relazione strength dict (usa get per sicurezza se chiave non esiste)
+    rel_strength_dict = { (r['from'], r['to'], r['relation']): r.get('count', 0) \
+                         for r in mappa.get('relation_strength', []) }net = Network(directed=True, height='650px', width='100%')
     net.force_atlas_2based(gravity=-200, central_gravity=0.01, spring_length=800, spring_strength=0.001, damping=0.7)
     for n in G.nodes():
         size = 10 + (tf.get(n,0)**0.5)*20
