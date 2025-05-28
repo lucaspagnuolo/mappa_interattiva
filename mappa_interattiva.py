@@ -124,10 +124,14 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
         if frm in valid_nodes and to in valid_nodes:
             G_full.add_edge(frm, to, relation=e.get('relation',''))
     # Individuo tutti i nodi raggiungibili dal nodo centrale
-    reachable = set()
-    if central_node in G_full:
-        reachable = {central_node} | nx.descendants(G_full, central_node)
-    # Build sotto-grafo solo raggiungibili
+reachable = set()
+if central_node in G_full:
+    reachable = {central_node} | nx.descendants(G_full, central_node)
+# Se nessun nodo raggiungibile (tranne centrale se tf< soglia), avviso e esco
+if not reachable or (reachable == {central_node} and tf.get(central_node,0) < soglia):
+    st.warning("Nessun nodo soddisfa la soglia o non ci sono collegamenti al nodo centrale.")
+    return ""
+# Build sotto-grafo solo raggiungibili
     G = G_full.subgraph(reachable).copy()
     # Community detection
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
