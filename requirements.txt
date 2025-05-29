@@ -1,5 +1,6 @@
-streamlit>=1.25.0
-pdfplumber>=0.7.6
-mistralai>=0.1.0
+streamlit>=1.24.0
+pdfplumber>=0.8.0
 networkx>=3.0
-pyvis>=0.3.0
+pyvis>=0.2.1
+mistralai-sdk>=1.0.0         # (o qualunque versione appropriata del tuo SDK Mistral)
+scikit-learn>=1.2.0
