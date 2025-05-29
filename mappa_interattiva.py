@@ -10,58 +10,80 @@ import streamlit as st
 import streamlit.components.v1 as components
 import random
 import math
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+from collections import Counter
 
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
 
-# === FUNZIONI DI NORMALIZZAZIONE ===
+# === TF–IDF E COSINE SIMILARITY “IN CASA” ===
+
+def build_tfidf(docs: list[str]) -> list[dict[str, float]]:
+    term_counts = [Counter(doc.split()) for doc in docs]
+    df = Counter()
+    for tc in term_counts:
+        for term in tc:
+            df[term] += 1
+    N = len(docs)
+    idf = {term: math.log((N + 1) / (df_t + 1)) + 1 for term, df_t in df.items()}
+    tfidf_vectors = []
+    for tc in term_counts:
+        total = sum(tc.values())
+        vec = {term: (count / total) * idf[term] for term, count in tc.items()}
+        tfidf_vectors.append(vec)
+    return tfidf_vectors
+
+def cosine_sim(a: dict[str, float], b: dict[str, float]) -> float:
+    dot = sum(a[t] * b.get(t, 0.0) for t in a)
+    norm_a = math.sqrt(sum(v * v for v in a.values()))
+    norm_b = math.sqrt(sum(v * v for v in b.values()))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
 
 def normalizza_nodi_per_similarita(nodi: set[str], edges: list[dict], threshold: float = 0.8) -> tuple[set[str], list[dict]]:
-    nodi = list(nodi)
-    vectorizer = TfidfVectorizer().fit(nodi)
-    tfidf_matrix = vectorizer.transform(nodi)
-    cosine_sim = cosine_similarity(tfidf_matrix)
-
+    nodi_list = list(nodi)
+    tfidf_vecs = build_tfidf(nodi_list)
     mapping = {}
     visited = set()
 
-    for i in range(len(nodi)):
-        if nodi[i] in visited:
+    for i, ni in enumerate(nodi_list):
+        if ni in visited:
             continue
-        gruppo = [nodi[i]]
-        for j in range(i+1, len(nodi)):
-            if cosine_sim[i, j] >= threshold:
-                gruppo.append(nodi[j])
-                visited.add(nodi[j])
+        gruppo = [ni]
+        for j in range(i+1, len(nodi_list)):
+            if cosine_sim(tfidf_vecs[i], tfidf_vecs[j]) >= threshold:
+                gruppo.append(nodi_list[j])
+                visited.add(nodi_list[j])
         rappresentante = gruppo[0]
         for membro in gruppo:
             mapping[membro] = rappresentante
-        visited.add(nodi[i])
+        visited.add(ni)
 
-    nuovi_nodi = {mapping[n] for n in nodi}
+    nuovi_nodi = {mapping[n] for n in nodi_list}
 
-    # Aggregazione e somma delle forze (count) sugli archi normalizzati
     edge_dict = {}
     for e in edges:
         frm = mapping.get(e['from'], e['from'])
-        to = mapping.get(e['to'], e['to'])
+        to  = mapping.get(e['to'],   e['to'])
         rel = e.get('relation', '')
-        # Usa count o weight se presente, altrimenti 1
-        count = e.get('count', 1)
-
+        cnt = e.get('count', 1)
         key = (frm, to, rel)
-        edge_dict[key] = edge_dict.get(key, 0) + count
+        edge_dict[key] = edge_dict.get(key, 0) + cnt
 
-    # Ora applichiamo scaling logaritmico sulla forza (width)
     nuovi_edges = []
-    for (frm, to, rel), count in edge_dict.items():
-        width = 1 + math.log(count + 1) * 10  # Scaling logaritmico come richiesto
-        nuovi_edges.append({'from': frm, 'to': to, 'relation': rel, 'count': count, 'width': width})
+    for (frm, to, rel), cnt in edge_dict.items():
+        width = 1 + math.log(cnt + 1) * 10
+        nuovi_edges.append({
+            'from': frm,
+            'to': to,
+            'relation': rel,
+            'count': cnt,
+            'width': width
+        })
 
     return nuovi_nodi, nuovi_edges
+
 # === FUNZIONI DI BACKEND ===
 
 def estrai_testo_da_pdf(file) -> str:
@@ -75,7 +97,6 @@ def estrai_testo_da_pdf(file) -> str:
     progress.empty()
     return "\n".join(testo)
 
-
 def suddividi_testo(testo: str, max_chars: int = 15000) -> list[str]:
     parole = testo.split()
     blocchi, corrente, lunghezza = [], [], 0
@@ -88,7 +109,6 @@ def suddividi_testo(testo: str, max_chars: int = 15000) -> list[str]:
     if corrente:
         blocchi.append(" ".join(corrente))
     return blocchi
-
 
 def call_with_retries(prompt_args, max_retries=5):
     for attempt in range(1, max_retries + 1):
@@ -106,7 +126,6 @@ def call_with_retries(prompt_args, max_retries=5):
                 continue
             else:
                 raise
-
 
 def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
     blocchi = suddividi_testo(testo)
@@ -134,7 +153,6 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
     progress.empty()
     st.success("Mappa concettuale generata")
 
-    # Aggrega nodi e archi validi
     raw_nodes = set()
     raw_edges = []
     for m in ris:
@@ -148,13 +166,9 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
             if frm and to:
                 raw_edges.append({'from': frm.strip(), 'to': to.strip(), 'relation': rel})
 
-    # === Normalizzazione per similarità semantica
     nodi_normalizzati, archi_normalizzati = normalizza_nodi_per_similarita(raw_nodes, raw_edges)
 
-    # Frequenze
     tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in nodi_normalizzati}
-
-    # Forza relazione
     unique_rels = {(e['from'], e['to'], e['relation']) for e in archi_normalizzati}
     rel_strength = {}
     for frm, to, rel in unique_rels:
@@ -171,7 +185,6 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
             for frm, to, rel in unique_rels
         ]
     }
-
 
 def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     st.info(f"Creazione grafo con soglia >= {soglia}...")
@@ -191,17 +204,16 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
     group = {n: i for i, comm in enumerate(communities) for n in comm}
 
-    # Colori coerenti per ogni gruppo (bordo + sfondo)
     def genera_colore():
         return "#%06x" % random.randint(0, 0xFFFFFF)
-
     colori_gruppo = {i: genera_colore() for i in set(group.values())}
 
     rel_strength_dict = { (r['from'], r['to'], r['relation']): r.get('count', 0)
                          for r in mappa.get('relation_strength', []) }
 
     net = Network(directed=True, height='650px', width='100%')
-    net.force_atlas_2based(gravity=-200, central_gravity=0.01, spring_length=800, spring_strength=0.001, damping=0.7)
+    net.force_atlas_2based(gravity=-200, central_gravity=0.01,
+                          spring_length=800, spring_strength=0.001, damping=0.7)
 
     for n in G.nodes():
         g = group.get(n, 0)
@@ -228,6 +240,7 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     return html_file
 
 # === STREAMLIT UI ===
+
 st.title("Generatore Mappa Concettuale PDF Interattivo")
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
 central_node = st.text_input("Nodo centrale", "Servizio di Manutenzione")
