@@ -3,4 +3,3 @@ pdfplumber
 networkx
 pyvis
 mistralai-sdk     # (o qualunque versione appropriata del tuo SDK Mistral)
-scikit-learn
