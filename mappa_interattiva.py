@@ -153,22 +153,36 @@ def genera_mappa_concettuale(testo: str, central_node: str) -> dict:
     progress.empty()
     st.success("Mappa concettuale generata")
 
+    # ————————————— PARSING E NORMALIZZAZIONE NODI/ARCHI —————————————
     raw_nodes = set()
     raw_edges = []
     for m in ris:
+        # Nodi
         for n in m.get('nodes', []):
-            nid = n if isinstance(n, str) else n.get('id', '')
-            nid_str = nid.strip()
+            if isinstance(n, dict):
+                raw_id = n.get('id', '')
+            else:
+                raw_id = str(n)
+            nid_str = raw_id.strip()
             if nid_str and not re.match(r'^(?:\d+|n\d+)$', nid_str, flags=re.IGNORECASE):
                 raw_nodes.add(nid_str)
+        # Archi
         for e in m.get('edges', []):
-            frm, to, rel = e.get('from'), e.get('to'), e.get('relation', '')
+            frm = str(e.get('from', '')).strip()
+            to  = str(e.get('to', '')).strip()
+            rel = e.get('relation', '')
             if frm and to:
-                raw_edges.append({'from': frm.strip(), 'to': to.strip(), 'relation': rel})
+                raw_edges.append({'from': frm, 'to': to, 'relation': rel})
 
     nodi_normalizzati, archi_normalizzati = normalizza_nodi_per_similarita(raw_nodes, raw_edges)
 
-    tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in nodi_normalizzati}
+    # TF nodi
+    tf = {
+        n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE))
+        for n in nodi_normalizzati
+    }
+
+    # Forza relazioni
     unique_rels = {(e['from'], e['to'], e['relation']) for e in archi_normalizzati}
     rel_strength = {}
     for frm, to, rel in unique_rels:
@@ -208,8 +222,10 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
         return "#%06x" % random.randint(0, 0xFFFFFF)
     colori_gruppo = {i: genera_colore() for i in set(group.values())}
 
-    rel_strength_dict = { (r['from'], r['to'], r['relation']): r.get('count', 0)
-                         for r in mappa.get('relation_strength', []) }
+    rel_strength_dict = {
+        (r['from'], r['to'], r['relation']): r.get('count', 0)
+        for r in mappa.get('relation_strength', [])
+    }
 
     net = Network(directed=True, height='650px', width='100%')
     net.force_atlas_2based(gravity=-200, central_gravity=0.01,
