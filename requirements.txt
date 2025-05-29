@@ -1,5 +1,5 @@
-streamlit
-pdfplumber
-networkx
-pyvis
-mistralai-sdk     # (o qualunque versione appropriata del tuo SDK Mistral)
+streamlit>=1.24.0
+pdfplumber>=0.8.0
+networkx>=3.0
+pyvis>=0.2.1
+mistralai-sdk>=1.0.0
