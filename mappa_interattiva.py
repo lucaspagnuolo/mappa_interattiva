@@ -14,6 +14,7 @@ client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
 
 # === FUNZIONI DI BACKEND ===
+
 def estrai_testo_da_pdf(file) -> str:
     testo = []
     with pdfplumber.open(file) as pdf:
@@ -31,7 +32,6 @@ def estrai_indice(testo: str) -> list[str]:
     Estrae i termini principali dall'indice (o sommario) del PDF.
     """
     righe = testo.splitlines()
-    # Trova l'inizio della sezione Indice o Sommario
     try:
         start = next(i for i, r in enumerate(righe)
                      if re.match(r'^(Indice|Sommario)\b', r, re.IGNORECASE))
@@ -41,7 +41,6 @@ def estrai_indice(testo: str) -> list[str]:
     for r in righe[start + 1:]:
         if not r.strip():
             break
-        # Prova a estrarre il termine prima dei puntini o del numero di pagina
         m = re.match(r'^(?P<termine>.+?)\s+\.{2,}\s*\d+|\s+\d+$', r)
         if m:
             termini.append(m.group('termine').strip())
@@ -50,6 +49,15 @@ def estrai_indice(testo: str) -> list[str]:
             if len(parti) == 2 and parti[1].isdigit():
                 termini.append(parti[0].strip())
     return termini
+
+
+def filtra_paragrafi_sottoparagrafi(index_terms: list[str]) -> list[str]:
+    """
+    Mantiene solo le voci numerate (paragrafi e sottoparagrafi)
+    che iniziano con numeri e seguono con parola maiuscola.
+    """
+    pattern = re.compile(r'^\d+(?:\.\d+)*\s+[A-ZÀ-ÖØ-Ý]')
+    return [t for t in index_terms if pattern.match(t)]
 
 
 def suddividi_testo(testo: str, max_chars: int = 15000) -> list[str]:
@@ -132,15 +140,17 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
     tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE))
           for n in raw_nodes}
 
-    # Gestione termini d'indice
+    # Gestione termini d'indice e boost
     index_terms = index_terms or []
+    filtered_index = filtra_paragrafi_sottoparagrafi(index_terms)
     BOOST = 5
-    # Forza presenza e boost tf
-    for term in index_terms:
-        raw_nodes.add(term)
-        tf[term] = tf.get(term, 0) + BOOST
+    for node in list(raw_nodes):
+        for term in filtered_index:
+            if re.search(rf"\b{re.escape(term)}\b", node, flags=re.IGNORECASE):
+                tf[node] = tf.get(node, 0) + BOOST
+                break
 
-    return {'nodes': list(raw_nodes), 'edges': raw_edges, 'tf': tf, 'index_terms': index_terms}
+    return {'nodes': list(raw_nodes), 'edges': raw_edges, 'tf': tf, 'index_terms': filtered_index}
 
 
 def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
@@ -150,28 +160,23 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     st.info(f"Creazione grafo con soglia >= {soglia}...")
     tf = mappa.get('tf', {})
     index_terms = set(mappa.get('index_terms', []))
-    # Seleziono nodi che soddisfano soglia, o sono termini d'indice, o nodo centrale
     valid_nodes = {n for n, count in tf.items() if count >= soglia} | index_terms | {central_node}
 
-    # Costruisco grafo filtrato
     G_full = nx.DiGraph()
     G_full.add_nodes_from(valid_nodes)
     for e in mappa['edges']:
-        frm, to = e['from'], e['to']
+        frm, to = e.get('from'), e.get('to')
         if frm in valid_nodes and to in valid_nodes:
             G_full.add_edge(frm, to, relation=e.get('relation', ''))
 
-    # Raggiungibilità dal centrale
     reachable = {central_node}
     if central_node in G_full:
         reachable |= nx.descendants(G_full, central_node)
     G = G_full.subgraph(reachable).copy()
 
-    # Community detection
     communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
     group = {n: i for i, comm in enumerate(communities) for n in comm}
 
-    # Visualizzazione PyVis
     net = Network(directed=True, height='650px', width='100%')
     net.force_atlas_2based(
         gravity=-200,
