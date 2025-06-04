@@ -9,6 +9,14 @@ from pyvis.network import Network
 import streamlit as st
 import streamlit.components.v1 as components
 
+# --- Layout con logo a destra ---------------------------------------------
+col1, col2 = st.columns([8, 1])
+with col1:
+    st.title("Estrattore di file firmati digitalmente (CAdES)")
+with col2:
+    logo = Image.open("img/Consip_Logo.png")  # Percorso relativo nella repo
+    st.image(logo, width=120)
+    
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
