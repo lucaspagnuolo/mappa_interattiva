@@ -8,14 +8,6 @@ from mistralai import Mistral, SDKError
 from pyvis.network import Network
 import streamlit as st
 import streamlit.components.v1 as components
-
-# --- Layout con logo a destra ---------------------------------------------
-col1, col2 = st.columns([8, 1])
-with col1:
-    st.title("Estrattore di file firmati digitalmente (CAdES)")
-with col2:
-    logo = Image.open("img/Consip_Logo.png")  # Percorso relativo nella repo
-    st.image(logo, width=120)
     
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
@@ -213,8 +205,14 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     return html_file
 
 # === STREAMLIT UI ===
-st.title("Generatore Mappa Concettuale PDF Interattivo")
-
+# --- Layout con logo a destra ---------------------------------------------
+col1, col2 = st.columns([8, 1])
+with col1:
+    st.title("Generatore Mappa Concettuale PDF Interattivo")
+with col2:
+    logo = Image.open("img/Consip_Logo.png")  # Percorso relativo nella repo
+    st.image(logo, width=120)
+    
 # 1) Caricamento PDF e parametri base
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
 central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
