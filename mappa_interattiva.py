@@ -211,7 +211,11 @@ col1, col2 = st.columns([7, 2])
 with col1:
     st.title("Generatore Mappa Concettuale PDF")
 with col2:
-    st.image("img/Registrazione 2025-06-04 162452.gif", format="GIF", width=150)
+    gif_path = "img/Registrazione 2025-06-04 162452.gif"
+    # Il browser riprodurrà la GIF in loop automaticamente
+    html_code = f'<img src="{gif_path}" width="120">'
+    # height=120 per coprire la dimensione verticale
+    components.html(html_code, height=120)
     
 # 1) Caricamento PDF e parametri base
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
