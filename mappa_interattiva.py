@@ -220,7 +220,7 @@ else:
     img_html = "<p>GIF non trovata</p>"
 
 # Adesso posizioniamo titolo e GIF nella barra in alto
-col1, col2 = st.columns([7, 2])
+col1, col2 = st.columns([5, 4])
 with col1:
     st.title("Generatore Mappa Concettuale PDF")
 with col2:
