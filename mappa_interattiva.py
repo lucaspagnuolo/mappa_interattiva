@@ -8,7 +8,7 @@ from mistralai import Mistral, SDKError
 from pyvis.network import Network
 import streamlit as st
 import streamlit.components.v1 as components
-from PIL import Image
+#from PIL import Image
     
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
