@@ -212,7 +212,7 @@ with col1:
     st.title("Generatore Mappa Concettuale PDF Interattivo")
 with col2:
     logo = Image.open("img/Consip_Logo.png")  # Percorso relativo nella repo
-    st.image(logo, width=120)
+    st.image(logo, width=150)
     
 # 1) Caricamento PDF e parametri base
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
