@@ -215,17 +215,18 @@ if os.path.exists(gif_path):
     with open(gif_path, "rb") as f:
         gif_bytes = f.read()
     gif_b64 = base64.b64encode(gif_bytes).decode("utf-8")
-    img_html = f'<img src="data:image/gif;base64,{gif_b64}" width="120" />'
+    # Imposto width=300px anziché 120px
+    img_html = f'<img src="data:image/gif;base64,{gif_b64}" width="300" />'
 else:
     img_html = "<p>GIF non trovata</p>"
 
 # Adesso posizioniamo titolo e GIF nella barra in alto
-col1, col2 = st.columns([5, 7])
+col1, col2 = st.columns([5, 4])
 with col1:
     st.title("Generatore Mappa Concettuale PDF")
 with col2:
-    # Inietto l'HTML con base64; height=120 porta spazio sufficiente all’immagine
-    components.html(img_html, height=120)
+    # Ora uso height=300 per avere spazio verticale sufficiente alla GIF ingrandita
+    components.html(img_html, height=300)
     
 # 1) Caricamento PDF e parametri base
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
