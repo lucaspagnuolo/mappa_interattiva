@@ -209,7 +209,7 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
 # --- Layout con logo a destra ---------------------------------------------
 col1, col2 = st.columns([7, 2])
 with col1:
-    st.title("Generatore Mappa Concettuale PDF Interattivo")
+    st.title("Generatore Mappa Concettuale PDF")
 with col2:
     logo = Image.open("img/Consip_Logo.png")  # Percorso relativo nella repo
     st.image(logo, width=150)
