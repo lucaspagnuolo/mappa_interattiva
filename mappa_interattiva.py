@@ -207,15 +207,24 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
 
 # === STREAMLIT UI ===
 # --- Layout con logo a destra ---------------------------------------------
+
+# Prima codifichiamo la GIF in base64
+gif_path = "img/Registrazione 2025-06-04 162452.gif"
+if os.path.exists(gif_path):
+    with open(gif_path, "rb") as f:
+        gif_bytes = f.read()
+    gif_b64 = base64.b64encode(gif_bytes).decode("utf-8")
+    img_html = f'<img src="data:image/gif;base64,{gif_b64}" width="120" />'
+else:
+    img_html = "<p>GIF non trovata</p>"
+
+# Adesso posizioniamo titolo e GIF nella barra in alto
 col1, col2 = st.columns([7, 2])
 with col1:
     st.title("Generatore Mappa Concettuale PDF")
 with col2:
-    gif_path = "img/Registrazione 2025-06-04 162452.gif"
-    # Il browser riprodurrà la GIF in loop automaticamente
-    html_code = f'<img src="{gif_path}" width="120">'
-    # height=120 per coprire la dimensione verticale
-    components.html(html_code, height=120)
+    # Inietto l'HTML con base64; height=120 porta spazio sufficiente all’immagine
+    components.html(img_html, height=120)
     
 # 1) Caricamento PDF e parametri base
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
