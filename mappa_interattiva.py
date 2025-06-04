@@ -8,6 +8,7 @@ from mistralai import Mistral, SDKError
 from pyvis.network import Network
 import streamlit as st
 import streamlit.components.v1 as components
+import base64  # <<< serve per codificare la GIF in base64
 #from PIL import Image
     
 # === CONFIGURAZIONE API ===
