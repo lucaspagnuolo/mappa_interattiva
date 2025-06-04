@@ -207,7 +207,7 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
 
 # === STREAMLIT UI ===
 # --- Layout con logo a destra ---------------------------------------------
-col1, col2 = st.columns([8, 1])
+col1, col2 = st.columns([7, 2])
 with col1:
     st.title("Generatore Mappa Concettuale PDF Interattivo")
 with col2:
