@@ -211,7 +211,7 @@ col1, col2 = st.columns([7, 2])
 with col1:
     st.title("Generatore Mappa Concettuale PDF")
 with col2:
-    logo = Image.open("img/Consip_Logo.png")  # Percorso relativo nella repo
+    logo = Image.open("img/Registrazione 2025-06-04 162452.gif")  # Percorso relativo nella repo
     st.image(logo, width=150)
     
 # 1) Caricamento PDF e parametri base
