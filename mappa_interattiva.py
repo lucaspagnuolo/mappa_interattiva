@@ -97,15 +97,22 @@ def call_with_retries(prompt_args, max_retries=5):
 def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[str] = None) -> dict:
     """
     Genera nodes, edges e tf, includendo un boost per i termini dell'indice.
-    La barra di caricamento ora riceve un valore in percentuale (0–100).
+    Ora mostra la percentuale accanto al messaggio "Generazione mappa..." durante l'elaborazione.
     """
     blocchi = suddividi_testo(testo)
     ris = []
-    st.info("Generazione mappa...")
+    # Creiamo un placeholder per il messaggio di stato (testo) e per la barra di progresso
+    status_text = st.empty()
     progress = st.progress(0)  # Inizialmente 0%
     totale_blocchi = len(blocchi)
 
     for idx, b in enumerate(blocchi, 1):
+        # Calcolo percentuale completamento
+        percentuale = int((idx / totale_blocchi) * 100)
+        # Aggiorniamo il testo e la barra
+        status_text.info(f"Generazione mappa... {percentuale}%")
+        progress.progress(percentuale)
+
         prompt = (
             "Rispondi SOLO con un JSON valido contenente i campi 'nodes' e 'edges'."
             " Includi nodes ed edges con campi 'from','to','relation'."
@@ -124,12 +131,9 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
         except:
             st.warning(f"Parsing fallito per blocco {idx}")
 
-        # Calcolo percentuale completamento e aggiornamento della barra
-        percentuale = int((idx / totale_blocchi) * 100)
-        progress.progress(percentuale)
-
+    # Puliamo la barra e mostriamo messaggio di completamento
     progress.empty()
-    st.success("Mappa concettuale generata")
+    status_text.success("Mappa concettuale generata")
 
     raw_nodes = set()
     raw_edges = []
