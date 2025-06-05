@@ -7,6 +7,7 @@ import networkx as nx
 from mistralai import Mistral, SDKError
 from pyvis.network import Network
 import streamlit as st
+import streamlit.components.v1 as components  # ← questa riga mancava
 import base64
 from PIL import Image  # serve solo per essere sicuri di leggere il file senza errori
 
