@@ -8,13 +8,14 @@ from mistralai import Mistral, SDKError
 from pyvis.network import Network
 import streamlit as st
 import streamlit.components.v1 as components
-import base64  # <<< serve per codificare la GIF in base64
+import base64  # necessaria per codificare la GIF in base64
 
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
 
 # === FUNZIONI DI BACKEND ===
+
 def estrai_testo_da_pdf(file) -> str:
     testo = []
     with pdfplumber.open(file) as pdf:
@@ -191,13 +192,14 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
 
 # === STREAMLIT UI ===
 
-# --- Layout con titolo (senza GIF statica) -------------------------------
+st.set_page_config(page_title="Generatore Mappa Concettuale PDF", layout="wide")
+
+# --- Titolo principale senza GIF statica -------------------------------
 col1, col2 = st.columns([5, 4])
 with col1:
     st.title("Generatore Mappa Concettuale PDF")
 with col2:
-    # Non mostriamo la GIF qui in modo permanente.
-    # Se vuoi tenere uno spazio, metti un placeholder vuoto:
+    # Lascio il secondo contenitore vuoto (oppure un piccolo placeholder)
     st.empty()
 
 # 1) Caricamento PDF e parametri base
@@ -206,53 +208,60 @@ central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
 json_name = st.text_input("Nome JSON (senza estensione)", value="mappa_completa")
 html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
 
-# ================================================
-# 2) Genera JSON completo con indice (con GIF)
-# ================================================
-if doc:
-    # Prepariamo la GIF in Base64 (ma NON la mostriamo ancora)
-    gif_path = "img/Progetto video 1.gif"  # <<-- qui metti il nome corretto
-    if os.path.exists(gif_path):
-        with open(gif_path, "rb") as f:
-            gif_bytes = f.read()
-        gif_b64 = base64.b64encode(gif_bytes).decode("utf-8")
-        img_html = f'<img src="data:image/gif;base64,{gif_b64}" width="300" />'
-    else:
-        img_html = "<p>GIF non trovata</p>"
+# 2) Preparazione della GIF (codifica in Base64) al di fuori del click
+gif_path = "img/Progetto video 1.gif"
+if os.path.exists(gif_path):
+    with open(gif_path, "rb") as f:
+        gif_bytes = f.read()
+    gif_b64 = base64.b64encode(gif_bytes).decode("utf-8")
+    img_html = """
+    <div style="display:flex; justify-content:center; align-items:center;">
+      <img 
+        src="data:image/gif;base64,{b64}" 
+        style="
+          max-width:300px;
+          width:100%;
+          height:auto;
+          display:block;
+        "
+        alt="Loading..."
+      />
+    </div>
+    """.format(b64=gif_b64)
+else:
+    img_html = "<p><i>GIF non trovata</i></p>"
 
-    # Creiamo un placeholder per la GIF, ma lo lasciamo vuoto per ora
-    gif_placeholder = st.empty()
+# 3) Placeholder per la GIF (inizialmente vuoto)
+gif_placeholder = st.empty()
 
-    # Pulsante per generare JSON completo
-    if st.button("Genera JSON completo"):
-        # 1) Mostriamo la GIF
-        gif_placeholder.markdown(img_html, unsafe_allow_html=True)
+# 4) Bottone "Genera JSON completo"
+if st.button("Genera JSON completo") and doc:
+    # 4.1) Mostra la GIF centrata
+    gif_placeholder.markdown(img_html, unsafe_allow_html=True)
 
-        # 2) Eseguiamo tutte le operazioni pesanti
-        start_time = time.time()
-        testo = estrai_testo_da_pdf(doc)
-        index_terms = estrai_indice(testo)
-        mappa = genera_mappa_concettuale(testo, central_node, index_terms=index_terms)
-        elapsed = (time.time() - start_time) / 60
+    # 4.2) Esegui estrazione testo e generazione mappa
+    start_time = time.time()
+    testo = estrai_testo_da_pdf(doc)
+    index_terms = estrai_indice(testo)
+    mappa = genera_mappa_concettuale(testo, central_node, index_terms=index_terms)
+    elapsed = (time.time() - start_time) / 60
 
-        # 3) Nascondiamo la GIF
-        gif_placeholder.empty()
+    # 4.3) Rimuovi la GIF
+    gif_placeholder.empty()
 
-        # 4) Salviamo in session_state e mostriamo risultati
-        st.session_state['mappa'] = mappa
-        st.session_state['testo'] = testo
-        st.session_state['central_node'] = central_node
-        st.session_state['index_terms'] = index_terms
+    # 4.4) Salva in session_state e mostra risultati
+    st.session_state['mappa'] = mappa
+    st.session_state['testo'] = testo
+    st.session_state['central_node'] = central_node
+    st.session_state['index_terms'] = index_terms
 
-        st.info(f"JSON generato in {elapsed:.2f} minuti")
-        st.subheader("JSON Completo (con tf e termini indice)")
-        st.json(mappa)
-        json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
-        st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
+    st.info(f"JSON generato in {elapsed:.2f} minuti")
+    st.subheader("JSON Completo (con tf e termini indice)")
+    st.json(mappa)
+    json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
+    st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
 
-# ==================================================
-# 3) Input soglia e creazione grafo (dopo JSON)
-# ==================================================
+# 5) Dopo aver generato il JSON, permette di visualizzare il grafo su soglia
 if 'mappa' in st.session_state:
     mappa = st.session_state['mappa']
     central_node = st.session_state['central_node']
