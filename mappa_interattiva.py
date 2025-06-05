@@ -97,17 +97,20 @@ def call_with_retries(prompt_args, max_retries=5):
 def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[str] = None) -> dict:
     """
     Genera nodes, edges e tf, includendo un boost per i termini dell'indice.
+    La barra di caricamento ora riceve un valore in percentuale (0–100).
     """
     blocchi = suddividi_testo(testo)
     ris = []
     st.info("Generazione mappa...")
-    progress = st.progress(0)
+    progress = st.progress(0)  # Inizialmente 0%
+    totale_blocchi = len(blocchi)
+
     for idx, b in enumerate(blocchi, 1):
         prompt = (
             "Rispondi SOLO con un JSON valido contenente i campi 'nodes' e 'edges'."
             " Includi nodes ed edges con campi 'from','to','relation'."
             " Nodo centrale: '" + central_node + "'\n"
-            f"\nBlocco {idx}/{len(blocchi)}:\n{b}"
+            f"\nBlocco {idx}/{totale_blocchi}:\n{b}"
         )
         resp = call_with_retries({"model": MODEL, "messages": [{"role": "user", "content": prompt}]})
         txt = resp.choices[0].message.content.strip()
@@ -120,9 +123,11 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
             ris.append(json.loads(raw))
         except:
             st.warning(f"Parsing fallito per blocco {idx}")
+
         # Calcolo percentuale completamento e aggiornamento della barra
         percentuale = int((idx / totale_blocchi) * 100)
         progress.progress(percentuale)
+
     progress.empty()
     st.success("Mappa concettuale generata")
 
