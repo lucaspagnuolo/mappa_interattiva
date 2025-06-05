@@ -9,14 +9,12 @@ from pyvis.network import Network
 import streamlit as st
 import streamlit.components.v1 as components
 import base64  # <<< serve per codificare la GIF in base64
-#from PIL import Image
-    
+
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
 
 # === FUNZIONI DI BACKEND ===
-
 def estrai_testo_da_pdf(file) -> str:
     testo = []
     with pdfplumber.open(file) as pdf:
@@ -28,11 +26,7 @@ def estrai_testo_da_pdf(file) -> str:
     progress.empty()
     return "\n".join(testo)
 
-
 def estrai_indice(testo: str) -> list[str]:
-    """
-    Estrae i termini principali dall'indice (o sommario) del PDF.
-    """
     righe = testo.splitlines()
     try:
         start = next(i for i, r in enumerate(righe)
@@ -52,15 +46,9 @@ def estrai_indice(testo: str) -> list[str]:
                 termini.append(parti[0].strip())
     return termini
 
-
 def filtra_paragrafi_sottoparagrafi(index_terms: list[str]) -> list[str]:
-    """
-    Mantiene solo le voci numerate (paragrafi e sottoparagrafi)
-    che iniziano con numeri e seguono con parola maiuscola.
-    """
     pattern = re.compile(r'^\d+(?:\.\d+)*\s+[A-ZÀ-ÖØ-Ý]')
     return [t for t in index_terms if pattern.match(t)]
-
 
 def suddividi_testo(testo: str, max_chars: int = 15000) -> list[str]:
     parole = testo.split()
@@ -74,7 +62,6 @@ def suddividi_testo(testo: str, max_chars: int = 15000) -> list[str]:
     if corrente:
         blocchi.append(" ".join(corrente))
     return blocchi
-
 
 def call_with_retries(prompt_args, max_retries=5):
     for attempt in range(1, max_retries + 1):
@@ -93,23 +80,15 @@ def call_with_retries(prompt_args, max_retries=5):
             else:
                 raise
 
-
 def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[str] = None) -> dict:
-    """
-    Genera nodes, edges e tf, includendo un boost per i termini dell'indice.
-    Ora mostra la percentuale accanto al messaggio "Generazione mappa..." durante l'elaborazione.
-    """
     blocchi = suddividi_testo(testo)
     ris = []
-    # Creiamo un placeholder per il messaggio di stato (testo) e per la barra di progresso
     status_text = st.empty()
-    progress = st.progress(0)  # Inizialmente 0%
+    progress = st.progress(0)
     totale_blocchi = len(blocchi)
 
     for idx, b in enumerate(blocchi, 1):
-        # Calcolo percentuale completamento
         percentuale = int((idx / totale_blocchi) * 100)
-        # Aggiorniamo il testo e la barra
         status_text.info(f"Generazione mappa... {percentuale}%")
         progress.progress(percentuale)
 
@@ -131,7 +110,6 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
         except:
             st.warning(f"Parsing fallito per blocco {idx}")
 
-    # Puliamo la barra e mostriamo messaggio di completamento
     progress.empty()
     status_text.success("Mappa concettuale generata")
 
@@ -149,11 +127,9 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
             if frm in raw_nodes and to in raw_nodes:
                 raw_edges.append({'from': frm, 'to': to, 'relation': e.get('relation', '')})
 
-    # Term frequency
     tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE))
           for n in raw_nodes}
 
-    # Gestione termini d'indice e boost
     index_terms = index_terms or []
     filtered_index = filtra_paragrafi_sottoparagrafi(index_terms)
     BOOST = 5
@@ -165,11 +141,7 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
 
     return {'nodes': list(raw_nodes), 'edges': raw_edges, 'tf': tf, 'index_terms': filtered_index}
 
-
 def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
-    """
-    Crea un grafo filtrato includendo sempre i termini d'indice.
-    """
     st.info(f"Creazione grafo con soglia >= {soglia}...")
     tf = mappa.get('tf', {})
     index_terms = set(mappa.get('index_terms', []))
@@ -218,51 +190,69 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     return html_file
 
 # === STREAMLIT UI ===
-# --- Layout con logo a destra ---------------------------------------------
 
-# Prima codifichiamo la GIF in base64
-gif_path = "img/Registrazione 2025-06-04 162452.gif"
-if os.path.exists(gif_path):
-    with open(gif_path, "rb") as f:
-        gif_bytes = f.read()
-    gif_b64 = base64.b64encode(gif_bytes).decode("utf-8")
-    # Imposto width=300px anziché 120px
-    img_html = f'<img src="data:image/gif;base64,{gif_b64}" width="300" />'
-else:
-    img_html = "<p>GIF non trovata</p>"
-
-# Adesso posizioniamo titolo e GIF nella barra in alto
+# --- Layout con titolo (senza GIF statica) -------------------------------
 col1, col2 = st.columns([5, 4])
 with col1:
     st.title("Generatore Mappa Concettuale PDF")
 with col2:
-    # Ora uso height=300 per avere spazio verticale sufficiente alla GIF ingrandita
-    components.html(img_html, height=300)
-    
+    # Non mostriamo la GIF qui in modo permanente.
+    # Se vuoi tenere uno spazio, metti un placeholder vuoto:
+    st.empty()
+
 # 1) Caricamento PDF e parametri base
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
 central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
 json_name = st.text_input("Nome JSON (senza estensione)", value="mappa_completa")
 html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
 
-# 2) Genera JSON completo con indice
-if st.button("Genera JSON completo") and doc:
-    start_time = time.time()
-    testo = estrai_testo_da_pdf(doc)
-    index_terms = estrai_indice(testo)
-    mappa = genera_mappa_concettuale(testo, central_node, index_terms=index_terms)
-    st.session_state['mappa'] = mappa
-    st.session_state['testo'] = testo
-    st.session_state['central_node'] = central_node
-    st.session_state['index_terms'] = index_terms
-    elapsed = (time.time() - start_time) / 60
-    st.info(f"JSON generato in {elapsed:.2f} minuti")
-    st.subheader("JSON Completo (con tf e termini indice)")
-    st.json(mappa)
-    json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
-    st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
+# ================================================
+# 2) Genera JSON completo con indice (con GIF)
+# ================================================
+if doc:
+    # Prepariamo la GIF in Base64 (ma NON la mostriamo ancora)
+    gif_path = "img/Progetto video 1.gif"  # <<-- qui metti il nome corretto
+    if os.path.exists(gif_path):
+        with open(gif_path, "rb") as f:
+            gif_bytes = f.read()
+        gif_b64 = base64.b64encode(gif_bytes).decode("utf-8")
+        img_html = f'<img src="data:image/gif;base64,{gif_b64}" width="300" />'
+    else:
+        img_html = "<p>GIF non trovata</p>"
 
+    # Creiamo un placeholder per la GIF, ma lo lasciamo vuoto per ora
+    gif_placeholder = st.empty()
+
+    # Pulsante per generare JSON completo
+    if st.button("Genera JSON completo"):
+        # 1) Mostriamo la GIF
+        gif_placeholder.markdown(img_html, unsafe_allow_html=True)
+
+        # 2) Eseguiamo tutte le operazioni pesanti
+        start_time = time.time()
+        testo = estrai_testo_da_pdf(doc)
+        index_terms = estrai_indice(testo)
+        mappa = genera_mappa_concettuale(testo, central_node, index_terms=index_terms)
+        elapsed = (time.time() - start_time) / 60
+
+        # 3) Nascondiamo la GIF
+        gif_placeholder.empty()
+
+        # 4) Salviamo in session_state e mostriamo risultati
+        st.session_state['mappa'] = mappa
+        st.session_state['testo'] = testo
+        st.session_state['central_node'] = central_node
+        st.session_state['index_terms'] = index_terms
+
+        st.info(f"JSON generato in {elapsed:.2f} minuti")
+        st.subheader("JSON Completo (con tf e termini indice)")
+        st.json(mappa)
+        json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
+        st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
+
+# ==================================================
 # 3) Input soglia e creazione grafo (dopo JSON)
+# ==================================================
 if 'mappa' in st.session_state:
     mappa = st.session_state['mappa']
     central_node = st.session_state['central_node']
