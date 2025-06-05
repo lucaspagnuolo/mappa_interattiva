@@ -7,9 +7,8 @@ import networkx as nx
 from mistralai import Mistral, SDKError
 from pyvis.network import Network
 import streamlit as st
-import streamlit.components.v1 as components
 import base64
-from PIL import Image  # per leggere dimensioni GIF
+from PIL import Image  # per leggere dimensioni GIF (se vuoi verificarle, ma non è strettamente necessario)
 
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
@@ -97,7 +96,7 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
         prompt = (
             "Rispondi SOLO con un JSON valido contenente i campi 'nodes' e 'edges'."
             " Includi nodes ed edges con campi 'from','to','relation'."
-            " Nodo centrale: '" + central_node + "'\n"
+            f" Nodo centrale: '{central_node}'\n"
             f"\nBlocco {idx}/{totale_blocchi}:\n{b}"
         )
         resp = call_with_retries({"model": MODEL, "messages": [{"role": "user", "content": prompt}]})
@@ -200,7 +199,6 @@ col1, col2 = st.columns([5, 4])
 with col1:
     st.title("Generatore Mappa Concettuale PDF")
 with col2:
-    # Seconda colonna lasciata vuota di proposito
     st.empty()
 
 # 1) Caricamento PDF e parametri base
@@ -209,65 +207,33 @@ central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
 json_name = st.text_input("Nome JSON (senza estensione)", value="mappa_completa")
 html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
 
-# 2) Pre‐elaborazione GIF: apriamola con PIL per ricavare dimensioni
+# 2) Pre‐elaborazione GIF: basta il percorso, non serve leggerne dimensioni
 gif_path = "img/Progetto video 1.gif"
-if os.path.exists(gif_path):
-    try:
-        gif_img = Image.open(gif_path)
-        orig_w, orig_h = gif_img.size
-        # Impostiamo larghezza max a 300px (come richiesto)
-        new_w = 300
-        # Ricalcoliamo l'altezza per mantenere le proporzioni
-        new_h = int((orig_h / orig_w) * new_w)
-    except Exception as e:
-        st.error(f"Errore nel leggere la GIF: {e}")
-        new_w, new_h = None, None
-else:
-    new_w, new_h = None, None
+if not os.path.exists(gif_path):
+    st.warning("GIF non trovata: controlla che il file esista in img/Progetto video 1.gif")
 
-# 3) Costruiamo lo snippet HTML solo se abbiamo effettivamente dimensioni
-if new_w is not None and new_h is not None:
-    # Il contenitore <div> centra l'immagine orizzontalmente
-    img_html = f"""
-    <div style="display:flex; justify-content:center; align-items:center; background:transparent;">
-      <img 
-        src="data:image/gif;base64,{base64.b64encode(open(gif_path, 'rb').read()).decode('utf-8')}"
-        style="
-          max-width:{new_w}px;
-          width:100%;
-          height:auto;
-          display:block;
-          background:transparent;
-        "
-        alt="Loading..."
-      />
-    </div>
-    """
-else:
-    img_html = "<p><i>GIF non trovata o errore nel caricamento.</i></p>"
-
-# 4) Placeholder per la GIF (inizialmente vuoto)
+# 3) Placeholder per la GIF (inizialmente vuoto)
 gif_placeholder = st.empty()
 
-# 5) Bottone "Genera JSON completo"
+# 4) Bottone "Genera JSON completo"
 if st.button("Genera JSON completo") and doc:
-    # 5.1) Mostro la GIF centrata, con height=new_h
-    if new_w is not None and new_h is not None:
-        components.html(img_html, height=new_h)
+    # 4.1) Se la GIF esiste, la mostro al centro (300px di larghezza)
+    if os.path.exists(gif_path):
+        gif_placeholder.image(gif_path, width=300)
     else:
-        gif_placeholder.markdown(img_html, unsafe_allow_html=True)
+        gif_placeholder.write("< GIF non trovata >", unsafe_allow_html=True)
 
-    # 5.2) Eseguo estrazione testo e generazione mappa
+    # 4.2) Eseguo estrazione testo e generazione mappa
     start_time = time.time()
     testo = estrai_testo_da_pdf(doc)
     index_terms = estrai_indice(testo)
     mappa = genera_mappa_concettuale(testo, central_node, index_terms=index_terms)
     elapsed = (time.time() - start_time) / 60
 
-    # 5.3) Rimuovo la GIF: basta svuotare il placeholder o ricaricare un div vuoto
+    # 4.3) Rimuovo la GIF
     gif_placeholder.empty()
 
-    # 5.4) Salvo in session_state e mostro i risultati
+    # 4.4) Salvo in session_state e mostro i risultati
     st.session_state['mappa'] = mappa
     st.session_state['testo'] = testo
     st.session_state['central_node'] = central_node
@@ -279,7 +245,7 @@ if st.button("Genera JSON completo") and doc:
     json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
     st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
 
-# 6) Se c’è già il JSON in session_state, permetto di generare il grafo
+# 5) Se c’è già il JSON in session_state, permetto di generare il grafo
 if 'mappa' in st.session_state:
     mappa = st.session_state['mappa']
     central_node = st.session_state['central_node']
