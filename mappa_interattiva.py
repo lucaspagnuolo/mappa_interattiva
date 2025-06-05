@@ -89,7 +89,8 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
     totale_blocchi = len(blocchi)
 
     for idx, b in enumerate(blocchi, 1):
-        percentuale = int((idx / totale_blocchi) * 100)
+        # Calcoliamo la percentuale su (idx - 1) per far partire da 0%
+        percentuale = int(((idx - 1) / totale_blocchi) * 100)
         status_text.info(f"Generazione mappa... {percentuale}%")
         progress.progress(percentuale)
 
@@ -111,8 +112,9 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
         except:
             st.warning(f"Parsing fallito per blocco {idx}")
 
-    progress.empty()
+    # Dopo aver processato tutti i blocchi, diamo 100% e chiudiamo
     status_text.success("Mappa concettuale generata")
+    progress.empty()
 
     raw_nodes = set()
     raw_edges = []
