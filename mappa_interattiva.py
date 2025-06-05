@@ -8,7 +8,7 @@ from mistralai import Mistral, SDKError
 from pyvis.network import Network
 import streamlit as st
 import base64
-from PIL import Image  # per leggere dimensioni GIF (se vuoi verificarle, ma non è strettamente necessario)
+from PIL import Image  # per leggere dimensioni GIF soltanto se servisse
 
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
@@ -207,7 +207,7 @@ central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
 json_name = st.text_input("Nome JSON (senza estensione)", value="mappa_completa")
 html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
 
-# 2) Pre‐elaborazione GIF: basta il percorso, non serve leggerne dimensioni
+# 2) Preparazione percorso della GIF (non serve più ricavarne le dimensioni)
 gif_path = "img/Progetto video 1.gif"
 if not os.path.exists(gif_path):
     st.warning("GIF non trovata: controlla che il file esista in img/Progetto video 1.gif")
@@ -215,13 +215,15 @@ if not os.path.exists(gif_path):
 # 3) Placeholder per la GIF (inizialmente vuoto)
 gif_placeholder = st.empty()
 
-# 4) Bottone "Genera JSON completo"
+# 4) Pulsante "Genera JSON completo"
 if st.button("Genera JSON completo") and doc:
-    # 4.1) Se la GIF esiste, la mostro al centro (300px di larghezza)
+    # 4.1) Mostro la GIF animata al centro (l'elemento st.image() NON “blocca” l'altezza rigidamente,
+    #       quindi non compariranno le bande nere): 
     if os.path.exists(gif_path):
-        gif_placeholder.image(gif_path, width=300)
+        gif_placeholder.image(gif_path, width=300, use_column_width=False)
     else:
-        gif_placeholder.write("< GIF non trovata >", unsafe_allow_html=True)
+        # Se non esiste, mostro un semplice messaggio
+        gif_placeholder.markdown("<p style='text-align:center; color:red;'>GIF non trovata</p>", unsafe_allow_html=True)
 
     # 4.2) Eseguo estrazione testo e generazione mappa
     start_time = time.time()
@@ -245,7 +247,7 @@ if st.button("Genera JSON completo") and doc:
     json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
     st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
 
-# 5) Se c’è già il JSON in session_state, permetto di generare il grafo
+# 5) Se il JSON è già stato generato, permetto di generare il grafo
 if 'mappa' in st.session_state:
     mappa = st.session_state['mappa']
     central_node = st.session_state['central_node']
