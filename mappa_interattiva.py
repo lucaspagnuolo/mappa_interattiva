@@ -176,28 +176,27 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     except Exception:
         group_map = {n: 0 for n in G.nodes()}
 
-    # Calcolo profondità livelli
+    # Calcolo profondità livelli e posizionamento sinistra/destra
     depth = nx.single_source_shortest_path_length(G, central_node)
     levels = {}
     for n, d in depth.items():
         levels.setdefault(d, []).append(n)
     from random import uniform
-    ring_radius = 1000  # distanza tra livelli impostata a 1000
+    ring_radius = 1000
     positions = {central_node: (0, 0)}
     for lvl, nodes_at_lvl in levels.items():
         if lvl == 0:
             continue
         num_n = len(nodes_at_lvl)
-        radius_lvl = lvl * ring_radius
+        side = 1 if lvl % 2 == 1 else -1
         for idx, node in enumerate(nodes_at_lvl):
-            base_angle = 2 * 3.141592653589793 * idx / num_n
-            angle = base_angle + uniform(-0.1, 0.1)
-            x = radius_lvl * cos(angle)
-            y = radius_lvl * sin(angle)
+            frac = (idx + 1) / (num_n + 1)
+            x = lvl * ring_radius * side
+            y = (frac - 0.5) * lvl * ring_radius * 1.5 + uniform(-50, 50)
             positions[node] = (x, y)
 
     # Creazione rete PyVis
-    net = Network(directed=True, height='650px', width='100%')
+    net = Network(directed=True, height='650px', width='100%')(directed=True, height='650px', width='100%')
     net.toggle_physics(False)
     for n in G.nodes():
         size = 10 + (tf.get(n, 0) ** 0.5) * 20
