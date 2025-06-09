@@ -1,10 +1,10 @@
-# codice del 09/06/2025 ora presente su git
 import os
 import json
 import re
 import time
 import pdfplumber
 import networkx as nx
+from math import cos, sin
 from mistralai import Mistral, SDKError
 from pyvis.network import Network
 import streamlit as st
@@ -29,6 +29,7 @@ def estrai_testo_da_pdf(file) -> str:
     progress.empty()
     return "\n".join(testo)
 
+
 def estrai_indice(testo: str) -> list[str]:
     righe = testo.splitlines()
     try:
@@ -49,9 +50,11 @@ def estrai_indice(testo: str) -> list[str]:
                 termini.append(parti[0].strip())
     return termini
 
+
 def filtra_paragrafi_sottoparagrafi(index_terms: list[str]) -> list[str]:
     pattern = re.compile(r'^\d+(?:\.\d+)*\s+[A-ZÀ-ÖØ-Ý]')
     return [t for t in index_terms if pattern.match(t)]
+
 
 def suddividi_testo(testo: str, max_chars: int = 15000) -> list[str]:
     parole = testo.split()
@@ -65,6 +68,7 @@ def suddividi_testo(testo: str, max_chars: int = 15000) -> list[str]:
     if corrente:
         blocchi.append(" ".join(corrente))
     return blocchi
+
 
 def call_with_retries(prompt_args, max_retries=5):
     for attempt in range(1, max_retries + 1):
@@ -83,6 +87,7 @@ def call_with_retries(prompt_args, max_retries=5):
             else:
                 raise
 
+
 def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[str] = None) -> dict:
     blocchi = suddividi_testo(testo)
     ris = []
@@ -91,7 +96,6 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
     totale_blocchi = len(blocchi)
 
     for idx, b in enumerate(blocchi, 1):
-        # Calcoliamo la percentuale su (idx - 1) per far partire da 0%
         percentuale = int(((idx - 1) / totale_blocchi) * 100)
         status_text.info(f"Generazione mappa... {percentuale}%")
         progress.progress(percentuale)
@@ -114,7 +118,6 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
         except:
             st.warning(f"Parsing fallito per blocco {idx}")
 
-    # Dopo aver processato tutti i blocchi, diamo 100% e chiudiamo
     status_text.success("Mappa concettuale generata")
     progress.empty()
 
@@ -146,29 +149,29 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
 
     return {'nodes': list(raw_nodes), 'edges': raw_edges, 'tf': tf, 'index_terms': filtered_index}
 
+
 def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     st.info(f"Creazione grafo con soglia >= {soglia}...")
     tf = mappa.get('tf', {})
     index_terms = set(mappa.get('index_terms', []))
     valid_nodes = {n for n, count in tf.items() if count >= soglia} | index_terms | {central_node}
 
-    # Build full directed graph and filter
     G_full = nx.DiGraph()
     G_full.add_nodes_from(valid_nodes)
     for e in mappa['edges']:
         frm, to = e.get('from'), e.get('to')
         if frm in valid_nodes and to in valid_nodes:
             G_full.add_edge(frm, to, relation=e.get('relation', ''))
+
     reachable = {central_node}
     if central_node in G_full:
         reachable |= nx.descendants(G_full, central_node)
     G = G_full.subgraph(reachable).copy()
 
-    # Prepare radial layout: central node at (0,0), others on a circle
     nodes = list(G.nodes())
     others = [n for n in nodes if n != central_node]
-    num = len(others)
-    radius = 300  # adjust as needed for spacing
+    num = len(others) if others else 1
+    radius = 300
     positions = {central_node: (0, 0)}
     for idx, node in enumerate(others):
         angle = 2 * 3.141592653589793 * idx / num
@@ -176,9 +179,8 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
         y = radius * sin(angle)
         positions[node] = (x, y)
 
-    # Build PyVis network with fixed positions
     net = Network(directed=True, height='650px', width='100%')
-    net.barnes_hut(enabled=False)  # disable auto-layout
+    net.barnes_hut(enabled=False)
     for n in G.nodes():
         size = 10 + (tf.get(n, 0) ** 0.5) * 20
         x, y = positions.get(n, (None, None))
@@ -202,7 +204,6 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
 
 st.set_page_config(page_title="Generatore Mappa Concettuale PDF", layout="wide")
 
-# --- Header senza GIF statica -------------------------------
 col1, col2 = st.columns([5, 4])
 with col1:
     st.title("Generatore Mappa Concettuale PDF")
@@ -210,6 +211,7 @@ with col2:
     st.empty()
 
 # 1) Caricamento PDF e parametri base
+
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
 central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
 json_name = st.text_input("Nome JSON (senza estensione)", value="mappa_completa")
@@ -220,21 +222,15 @@ gif_path = "img/Progetto video 1.gif"
 if not os.path.exists(gif_path):
     st.warning("GIF non trovata: controlla che il file esista in img/Progetto video 1.gif")
 
-# 3) Creazione del placeholder per la GIF: inizialmente vuoto
+# 3) Placeholder per la GIF
 gif_placeholder = st.empty()
 
 # 4) Bottone "Genera JSON completo"
 if st.button("Genera JSON completo") and doc:
-
-    # 4.1) Per prima cosa, codifichiamo la GIF in base64 e la mostriamo in un div centrato via Markdown.
-    #      In questo modo il blocco si ridimensiona automaticamente all'altezza della GIF (nessuna banda nera).
     if os.path.exists(gif_path):
-        # Leggiamo i byte e codifichiamo in base64
         with open(gif_path, "rb") as f:
             gif_bytes = f.read()
         gif_b64 = base64.b64encode(gif_bytes).decode("utf-8")
-
-        # Creiamo il tag HTML <img> con max-width 300px e centriamo con un <div> flex
         img_html = f"""
         <div style="display:flex; justify-content:center; align-items:center; background:transparent; margin:0; padding:0;">
           <img 
@@ -251,22 +247,18 @@ if st.button("Genera JSON completo") and doc:
           />
         </div>
         """
-        # Iniettiamo il GIF con Markdown (unsafe_allow_html=True)
         gif_placeholder.markdown(img_html, unsafe_allow_html=True)
     else:
         gif_placeholder.markdown("<p style='text-align:center; color:red;'>GIF non trovata</p>", unsafe_allow_html=True)
 
-    # 4.2) Eseguiamo estrazione del testo e generazione della mappa
     start_time = time.time()
     testo = estrai_testo_da_pdf(doc)
     index_terms = estrai_indice(testo)
     mappa = genera_mappa_concettuale(testo, central_node, index_terms=index_terms)
     elapsed = (time.time() - start_time) / 60
 
-    # 4.3) Rimuoviamo la GIF (torna tutto pulito)
     gif_placeholder.empty()
 
-    # 4.4) Salviamo in session_state e mostriamo i risultati
     st.session_state['mappa'] = mappa
     st.session_state['testo'] = testo
     st.session_state['central_node'] = central_node
@@ -278,10 +270,10 @@ if st.button("Genera JSON completo") and doc:
     json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
     st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
 
-# 5) Se esiste già la mappa in session_state, permettiamo di generare il grafo
+# 5) Generazione grafo interattivo
 if 'mappa' in st.session_state:
     mappa = st.session_state['mappa']
-    central_node = st.session_state['central_node']
+    central_node = st.session_state.get('central_node', central_node)
     st.subheader("Seleziona soglia per filtro nodo")
     soglia_input = st.text_input("Soglia occorrenze (numero intero)", value="1")
     if st.button("Visualizza grafo con soglia"):
