@@ -268,7 +268,7 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
 
 # === STREAMLIT APP ===
 st.set_page_config(page_title="Generatore Mappa Concettuale PDF", layout="wide")
-mode = st.sidebar.selectbox("Seleziona modalità", ["Mappa Gerarchica", "Mappa Circolare"]
+mode = st.sidebar.selectbox("Seleziona modalità", ["Mappa Gerarchica", "Mappa Circolare"])
 
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
 central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
