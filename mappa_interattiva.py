@@ -92,7 +92,7 @@ def merge_structures(acc: dict[str, set[str]], part: dict[str, list[str]]):
     for ramo, subs in part.items():
         acc.setdefault(ramo, set()).update(subs)
 
-
+# Funzione di disegno di base
 def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
     branches.pop(central_node, None)
     primari = list(branches.keys())
@@ -118,16 +118,16 @@ def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
         return {item[0]: y for item, y in zip(flat, ys)}
 
     posL, posR = compute_pos(flat_L), compute_pos(flat_R)
-
     fig, ax = plt.subplots(figsize=(20, max(12, (len(flat_L)+len(flat_R)+1)*0.3)))
     ax.axis('off')
     total_nodes = len(flat_L) + len(flat_R) + 1
     main_fs = 16 if total_nodes <= 50 else max(8, 16 * 50 / total_nodes)
     sub_fs = main_fs * 0.8
 
+    # Nodo centrale
     ax.text(0.5, 0.5, central_node, fontsize=main_fs, ha='center', va='center', bbox=dict(boxstyle='round', fc='lightblue'))
 
-    # Connessioni ramo sinistro
+    # Connessioni
     for node, depth, *rest in flat_L:
         if depth == 0:
             ax.plot([0.5, 0.25], [0.5, posL[node]], 'gray')
@@ -135,7 +135,7 @@ def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
         if depth == 0:
             ax.plot([0.5, 0.75], [0.5, posR[node]], 'gray')
 
-    # Disegna etichette
+    # Etichette
     for node, depth, *rest in flat_L:
         x = 0.25 - 0.03 * depth
         y = posL[node]
@@ -144,7 +144,6 @@ def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
         ax.text(x, y, txt, fontsize=fs, ha='center', va='center', bbox=dict(boxstyle='round', fc='lavender' if depth == 0 else 'white'))
         if depth == 1:
             ax.plot([0.25, 0.25], [posL[rest[0]], y], 'gray')
-
     for node, depth, *rest in flat_R:
         x = 0.75 + 0.03 * depth
         y = posR[node]
@@ -156,6 +155,20 @@ def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
 
     plt.tight_layout()
     st.pyplot(fig)
+
+# Funzioni batch
+
+def draw_mind_map_subset(central_node: str, branches: dict[str, set[str]], subset_primari: list[str]):
+    sub_branches = {r: branches[r] for r in subset_primari if r in branches}
+    draw_mind_map(central_node, {**{central_node: set()}, **sub_branches})
+
+
+def draw_mind_maps_in_batches(central_node: str, branches: dict[str, set[str]], batch_size: int = 10):
+    primari = list(branches.keys())
+    batches = [primari[i:i+batch_size] for i in range(0, len(primari), batch_size)]
+    for i, batch in enumerate(batches, 1):
+        st.markdown(f"### Mappa batch {i}/{len(batches)} (rami: {len(batch)})")
+        draw_mind_map_subset(central_node, branches, batch)
 
 # === MAPPA CIRCOLARE ===
 def estrai_indice(testo: str) -> list[str]:
@@ -288,26 +301,19 @@ if mode == "Mappa Gerarchica":
         testo = estrai_testo_da_pdf(doc)
         blocchi = suddividi_testo(testo)
         accum = {}
-        status = st.empty()
-        prog = st.progress(0)
+        status = st.empty(); prog = st.progress(0)
         total = len(blocchi)
         for idx, blk in enumerate(blocchi, 1):
-            pct = int(idx / total * 100)
-            status.info(f"Generazione... {pct}%")
-            prog.progress(pct)
-
+            pct = int(idx/total*100); status.info(f"Generazione... {pct}%"); prog.progress(pct)
             part = genera_struttura_per_blocco(blk, central_node)
-            if not part:
-                st.warning(f"Blocco {idx}: fallback")
-                part = {"[automatic]": [central_node]}
-
-            st.markdown(f"**Blocco {idx}**")
-            st.code(part, language='python')
+            if not part: part = {"[automatic]": [central_node]}
             merge_structures(accum, part)
+        prog.empty(); status.success("Mappa Gerarchica completata!")
+        st.session_state['accum'] = accum
 
-        prog.empty()
-        status.success("Mappa Gerarchica completata!")
-        draw_mind_map(central_node, accum)
+    if 'accum' in st.session_state:
+        batch_size = st.sidebar.slider("Rami per immagine", 1, 20, 10)
+        draw_mind_maps_in_batches(central_node, st.session_state['accum'], batch_size)
 else:
     if st.button("Genera JSON Completo") and doc:
         gif_ph = st.empty()
