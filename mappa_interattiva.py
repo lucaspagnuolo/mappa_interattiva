@@ -1,22 +1,19 @@
 import os
-import json
 import re
 import time
 import pdfplumber
-import networkx as nx
 import matplotlib.pyplot as plt
 from mistralai import Mistral, SDKError
 import streamlit as st
-import streamlit.components.v1 as components
 import base64
 from PIL import Image
+import ast
 
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
 
-# === FUNZIONI DI BACKEND ===
-
+# === ESTRAZIONE TESTO ===
 def estrai_testo_da_pdf(file) -> str:
     testo = []
     with pdfplumber.open(file) as pdf:
@@ -28,163 +25,89 @@ def estrai_testo_da_pdf(file) -> str:
     progress.empty()
     return "\n".join(testo)
 
-def estrai_indice(testo: str) -> list[str]:
-    righe = testo.splitlines()
-    try:
-        start = next(i for i, r in enumerate(righe)
-                     if re.match(r'^(Indice|Sommario)\b', r, re.IGNORECASE))
-    except StopIteration:
-        return []
-    termini = []
-    for r in righe[start + 1:]:
-        if not r.strip():
-            break
-        m = re.match(r'^(?P<termine>.+?)\s+\.{2,}\s*\d+|\s+\d+$', r)
-        if m:
-            termini.append(m.group('termine').strip())
-        else:
-            parti = r.rsplit(' ', 1)
-            if len(parti) == 2 and parti[1].isdigit():
-                termini.append(parti[0].strip())
-    return termini
+# === CHIAMATA MODELLO PER STRUTTURA AD ALBERO ===
+def genera_struttura_concettuale(testo: str, central_node: str) -> dict:
+    """
+    Chiede al LLM di restituire una struttura ad albero Python literal,
+    es. {'Supporto IT': ['Gestione ticket', ...], ...}
+    """
+    prompt = f"""
+    Leggi questo testo estratto da un PDF e costruisci una mappa concettuale
+    con nodo centrale "{central_node}". Rispondi **SOLO** con un dizionario
+    Python in una singola riga, della forma:
 
-def filtra_paragrafi_sottoparagrafi(index_terms: list[str]) -> list[str]:
-    pattern = re.compile(r'^\d+(?:\.\d+)*\s+[A-ZÀ-ÖØ-Ý]')
-    return [t for t in index_terms if pattern.match(t)]
+      {{
+        "{central_node}": {{
+          "Branch A": ["Sub1", "Sub2", ...],
+          "Branch B": ["Sub1", ...],
+          ...
+        }}
+      }}
 
-def suddividi_testo(testo: str, max_chars: int = 15000) -> list[str]:
-    parole = testo.split()
-    blocchi, corrente, lunghezza = [], [], 0
-    for parola in parole:
-        if lunghezza + len(parola) + 1 > max_chars:
-            blocchi.append(" ".join(corrente))
-            corrente, lunghezza = [], 0
-        corrente.append(parola)
-        lunghezza += len(parola) + 1
-    if corrente:
-        blocchi.append(" ".join(corrente))
-    return blocchi
-
-def call_with_retries(prompt_args, max_retries=5):
-    for attempt in range(1, max_retries + 1):
+    Dove:
+    - Le chiavi di primo livello sono i rami direttamente collegati al nodo centrale.
+    - Le liste contengono i sottorami di secondo livello.
+    Non inserire altro testo, né code fences.
+    
+    Testo:
+    {testo}
+    """
+    # una singola chiamata
+    for attempt in range(3):
         try:
-            time.sleep(1)
-            return client.chat.complete(**prompt_args)
+            resp = client.chat.complete(
+                model=MODEL,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = resp.choices[0].message.content.strip()
+            # parsing sicuro
+            tree = ast.literal_eval(text)
+            if isinstance(tree, dict):
+                return tree[central_node]
         except SDKError as e:
-            if e.status_code == 429 and attempt < max_retries:
-                time.sleep(2 ** attempt)
-                continue
-            raise
+            time.sleep(2 ** attempt)
+            continue
         except Exception:
-            if attempt < max_retries:
-                time.sleep(2 ** attempt)
-                continue
-            else:
-                raise
+            break
+    st.error("Errore nel parsing della struttura dal modello.")
+    return {}
 
-def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[str] = None) -> dict:
-    blocchi = suddividi_testo(testo)
-    ris = []
-    status_text = st.empty()
-    progress = st.progress(0)
-    totale_blocchi = len(blocchi)
+# === DISEGNO CON MATPLOTLIB ===
+def draw_mind_map(central_node: str, branches: dict[str, list[str]]):
+    """
+    branches: dict di {branch: [sub1, sub2, ...], ...}
+    disegna con distribuzione automatica per evitare sovrapposizioni.
+    """
+    # 1) divido i rami in due lati
+    primari = list(branches.keys())
+    meta = len(primari) // 2
+    left = primari[:meta]
+    right = primari[meta:]
 
-    for idx, b in enumerate(blocchi, 1):
-        percentuale = int(((idx - 1) / totale_blocchi) * 100)
-        status_text.info(f"Generazione mappa... {percentuale}%")
-        progress.progress(percentuale)
-
-        prompt = (
-            "Rispondi SOLO con un JSON valido contenente i campi 'nodes' e 'edges'."
-            " Includi nodes ed edges con campi 'from','to','relation'."
-            f" Nodo centrale: '{central_node}'\n"
-            f"\nBlocco {idx}/{totale_blocchi}:\n{b}"
-        )
-        resp = call_with_retries({"model": MODEL, "messages": [{"role": "user", "content": prompt}]})
-        txt = resp.choices[0].message.content.strip()
-        if txt.startswith("```"):
-            lines = txt.splitlines()
-            txt = "\n".join(lines[1:-1])
-        start, end = txt.find('{'), txt.rfind('}') + 1
-        raw = txt[start:end] if start != -1 and end != -1 else ''
-        try:
-            ris.append(json.loads(raw))
-        except:
-            st.warning(f"Parsing fallito per blocco {idx}")
-
-    status_text.success("Mappa concettuale generata")
-    progress.empty()
-
-    raw_nodes = set()
-    raw_edges = []
-    for m in ris:
-        for n in m.get('nodes', []):
-            nid = n if isinstance(n, str) else n.get('id', '')
-            if isinstance(nid, str):
-                nid_str = nid.strip()
-                if nid_str and not re.match(r'^(?:\d+|n\d+)$', nid_str, flags=re.IGNORECASE):
-                    raw_nodes.add(nid_str)
-        for e in m.get('edges', []):
-            frm, to = e.get('from'), e.get('to')
-            if frm in raw_nodes and to in raw_nodes:
-                raw_edges.append({'from': frm, 'to': to, 'relation': e.get('relation', '')})
-
-    tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE))
-          for n in raw_nodes}
-
-    index_terms = index_terms or []
-    filtered_index = filtra_paragrafi_sottoparagrafi(index_terms)
-    BOOST = 5
-    for node in list(raw_nodes):
-        for term in filtered_index:
-            if re.search(rf"\b{re.escape(term)}\b", node, flags=re.IGNORECASE):
-                tf[node] = tf.get(node, 0) + BOOST
-                break
-
-    return {'nodes': list(raw_nodes), 'edges': raw_edges, 'tf': tf, 'index_terms': filtered_index}
-
-# === NUOVA FUNZIONE PER MATPLOTLIB SENZA SOVRAPPOSIZIONI ===
-
-def draw_mind_map_from_json(mappa: dict, central_node: str, soglia: int):
-    # 1) Filtra i nodi
-    tf = mappa.get('tf', {})
-    index_terms = set(mappa.get('index_terms', []))
-    valid = {n for n, cnt in tf.items() if cnt >= soglia} | index_terms | {central_node}
-
-    # 2) Seleziona solo rami di primo livello
-    primi = [e['to'] for e in mappa['edges']
-             if e['from'] == central_node and e['to'] in valid]
-
-    # 3) Dividi rami in sinistra/destra
-    metà = len(primi) // 2
-    left = primi[:metà]
-    right = primi[metà:]
-
-    # 4) Appiattisci ramo + sottorami
-    def flatten(branch_list):
+    # 2) flatten con profondità
+    def flatten(side):
         flat = []
-        for b in branch_list:
+        for b in side:
             flat.append((b, 0))
-            for e in mappa['edges']:
-                if e['from'] == b and e['to'] in valid:
-                    flat.append((e['to'], 1))
+            for sub in branches.get(b, []):
+                flat.append((sub, 1, b))
         return flat
 
     flat_L = flatten(left)
     flat_R = flatten(right)
 
-    # 5) Calcola posizioni y equispaziate
-    def compute_positions(flat):
+    # 3) calcola y
+    def pos(flat):
         n = len(flat)
         if n == 0:
             return {}
         ys = [0.9 - i * (0.8 / (n - 1)) for i in range(n)]
-        return {node: y for (node, _), y in zip(flat, ys)}
+        return { item[0]: y for item, y in zip(flat, ys) }
 
-    posL = compute_positions(flat_L)
-    posR = compute_positions(flat_R)
+    posL = pos(flat_L)
+    posR = pos(flat_R)
 
-    # 6) Disegna
+    # 4) disegno
     fig, ax = plt.subplots(figsize=(20, 12))
     ax.axis("off")
 
@@ -193,100 +116,71 @@ def draw_mind_map_from_json(mappa: dict, central_node: str, soglia: int):
             fontsize=16, ha="center", va="center",
             bbox=dict(boxstyle="round", fc="lightblue"))
 
-    # linee dal centro ai rami
-    for node, depth in flat_L:
+    # linee ai rami
+    for node,depth,*rest in flat_L:
         if depth == 0:
             ax.plot([0.5, 0.25], [0.5, posL[node]], "gray")
-    for node, depth in flat_R:
+    for node,depth,*rest in flat_R:
         if depth == 0:
             ax.plot([0.5, 0.75], [0.5, posR[node]], "gray")
 
-    # etichette e linee interne
-    for node, depth in flat_L:
+    # etichette e profondità
+    for node, depth, *rest in flat_L:
         x = 0.25 - 0.03 * depth
         y = posL[node]
-        txt = f"- {node}" if depth else node
+        txt = (f"- {node}") if depth else node
         ax.text(x, y, txt,
                 fontsize=12 if depth == 0 else 10,
                 ha="center", va="center",
                 bbox=dict(boxstyle="round",
                           fc="lavender" if depth == 0 else "white"))
-        # collegamento ramo → sottoramo
+        # linea ramo→sottoramo
         if depth == 1:
-            parent = next(e['from'] for e in mappa['edges']
-                          if e['to'] == node and e['from'] in left)
+            parent = rest[0]
             ax.plot([0.25, 0.25], [posL[parent], y], "gray")
 
-    for node, depth in flat_R:
+    for node, depth, *rest in flat_R:
         x = 0.75 + 0.03 * depth
         y = posR[node]
-        txt = f"- {node}" if depth else node
+        txt = (f"- {node}") if depth else node
         ax.text(x, y, txt,
                 fontsize=12 if depth == 0 else 10,
                 ha="center", va="center",
                 bbox=dict(boxstyle="round",
                           fc="lavender" if depth == 0 else "white"))
         if depth == 1:
-            parent = next(e['from'] for e in mappa['edges']
-                          if e['to'] == node and e['from'] in right)
+            parent = rest[0]
             ax.plot([0.75, 0.75], [posR[parent], y], "gray")
 
     plt.tight_layout()
     st.pyplot(fig)
 
-# === STREAMLIT UI ===
+# === STREAMLIT APP ===
+st.set_page_config(page_title="Mappa Concettuale Diretta", layout="wide")
+st.title("Generatore Mappa Concettuale PDF — Output Diretto")
 
-st.set_page_config(page_title="Generatore Mappa Concettuale PDF", layout="wide")
-
-col1, col2 = st.columns([5, 4])
-with col1:
-    st.title("Generatore Mappa Concettuale PDF")
-with col2:
-    st.empty()
-
+# caricamento
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
 central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
-json_name = st.text_input("Nome JSON (senza estensione)", value="mappa_completa")
-html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
-gif_path = "img/Progetto video 1.gif"
 gif_placeholder = st.empty()
+gif_path = "img/Progetto video 1.gif"
 
-if st.button("Genera JSON completo") and doc:
+if st.button("Genera e Mostra Mappa") and doc:
+    # GIF di caricamento
     if os.path.exists(gif_path):
         with open(gif_path, "rb") as f:
-            gif_b64 = base64.b64encode(f.read()).decode("utf-8")
-        img_html = f"""
-        <div style="display:flex; justify-content:center; align-items:center; background:transparent;">
-          <img src="data:image/gif;base64,{gif_b64}" style="max-width:300px; width:100%; height:auto;" alt="Loading..."/>
-        </div>
-        """
-        gif_placeholder.markdown(img_html, unsafe_allow_html=True)
-    else:
-        gif_placeholder.markdown("<p style='text-align:center; color:red;'>GIF non trovata</p>", unsafe_allow_html=True)
-
-    start_time = time.time()
+            b64 = base64.b64encode(f.read()).decode()
+        gif_placeholder.markdown(
+            f"<img src='data:image/gif;base64,{b64}' width=200/>",
+            unsafe_allow_html=True
+        )
     testo = estrai_testo_da_pdf(doc)
-    index_terms = estrai_indice(testo)
-    mappa = genera_mappa_concettuale(testo, central_node, index_terms=index_terms)
-    elapsed = (time.time() - start_time) / 60
+    # genera albero
+    tree = genera_struttura_concettuale(testo, central_node)
     gif_placeholder.empty()
 
-    st.session_state['mappa'] = mappa
-    st.session_state['testo'] = testo
-    st.session_state['central_node'] = central_node
-    st.session_state['index_terms'] = index_terms
-
-    st.info(f"JSON generato in {elapsed:.2f} minuti")
-    st.subheader("JSON Completo (con tf e termini indice)")
-    st.json(mappa)
-    json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
-    st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
-
-if 'mappa' in st.session_state:
-    mappa = st.session_state['mappa']
-    central_node = st.session_state['central_node']
-
-    st.subheader("Visualizza mappa Matplotlib")
-    soglia = st.number_input("Soglia occorrenze (tf ≥)", min_value=0, value=1, step=1)
-    if st.button("Mostra mappa Matplotlib"):
-        draw_mind_map_from_json(mappa, central_node, soglia)
+    if tree:
+        # disegna
+        draw_mind_map(central_node, tree)
+    else:
+        st.error("Non è stato possibile creare la mappa.")
