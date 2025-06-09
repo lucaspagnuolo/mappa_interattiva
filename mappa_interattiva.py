@@ -191,7 +191,6 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     for src, dst, data in G.edges(data=True):
         net.add_edge(src, dst, label=data.get('relation', ''))
 
-    # Non utilizziamo show_buttons per evitare errori di configurazione
     html_file = f"temp_graph_{int(time.time())}.html"
     net.save_graph(html_file)
     st.success("Grafo generato")
@@ -215,4 +214,23 @@ json_name = st.text_input("Nome JSON (senza estensione)", value="mappa_completa"
 html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
 
 # 2) Path della GIF (non serve ricavarne dimensioni con PIL)
-...
+gif_path = "img/Progetto video 1.gif"
+if not os.path.exists(gif_path):
+    st.warning("GIF non trovata: controlla che il file esista in img/Progetto video 1.gif")
+
+# 3) Placeholder per la GIF
+gif_placeholder = st.empty()
+
+# 4) Bottone "Genera JSON completo"
+if st.button("Genera JSON completo") and doc:
+    if os.path.exists(gif_path):
+        with open(gif_path, "rb") as f:
+            gif_bytes = f.read()
+        gif_b64 = base64.b64encode(gif_bytes).decode("utf-8")
+        img_html = f"""
+        <div style="display:flex; justify-content:center; align-items:center; background:transparent; margin:0; padding:0;">
+          <img 
+            src="data:image/gif;base64,{gif_b64}"
+            style="
+              max-width:300px;
+              width:100
