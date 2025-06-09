@@ -6,7 +6,6 @@ import time
 import pdfplumber
 import networkx as nx
 import streamlit as st
-import streamlit.components.v1 as components
 from mistralai import Mistral, SDKError
 from streamlit_agraph import agraph, Config, Node, Edge
 
@@ -85,8 +84,7 @@ def call_with_retries(prompt_args, max_retries=5):
 
 def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[str] = None) -> dict:
     blocchi = suddividi_testo(testo)
-    ris = []
-    status_text = st.empty()
+    ris, status_text = [], st.empty()
     progress = st.progress(0)
     totale_blocchi = len(blocchi)
 
@@ -119,31 +117,24 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
     status_text.success("Mappa concettuale generata")
     progress.empty()
 
-    raw_nodes = set()
-    raw_edges = []
+    raw_nodes, raw_edges = set(), []
     for m in ris:
         for n in m.get('nodes', []):
             nid = n if isinstance(n, str) else n.get('id', '')
             if isinstance(nid, str):
                 nid_str = nid.strip()
-                if nid_str and not re.match(r'^(?:\d+|n\d+)$', nid_str, flags=re.IGNORECASE):
+                if nid_str and not re.match(r'^(?:\d+|n\d+)$', nid_str, re.IGNORECASE):
                     raw_nodes.add(nid_str)
         for e in m.get('edges', []):
             frm, to = e.get('from'), e.get('to')
             if frm in raw_nodes and to in raw_nodes:
                 raw_edges.append({'from': frm, 'to': to, 'relation': e.get('relation', '')})
 
-    tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE))
-          for n in raw_nodes}
-
-    index_terms = index_terms or []
-    filtered_index = filtra_paragrafi_sottoparagrafi(index_terms)
-    BOOST = 5
+    tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, re.IGNORECASE)) for n in raw_nodes}
+    filtered_index = filtra_paragrafi_sottoparagrafi(index_terms or [])
     for node in list(raw_nodes):
-        for term in filtered_index:
-            if re.search(rf"\b{re.escape(term)}\b", node, flags=re.IGNORECASE):
-                tf[node] = tf.get(node, 0) + BOOST
-                break
+        if any(re.search(rf"\b{re.escape(term)}\b", node, re.IGNORECASE) for term in filtered_index):
+            tf[node] = tf.get(node, 0) + 5
 
     return {'nodes': list(raw_nodes), 'edges': raw_edges, 'tf': tf, 'index_terms': filtered_index}
 
@@ -159,14 +150,13 @@ central_node = st.text_input("Nodo centrale (omesso in visualizzazione)", value=
 if pdf_file and st.button("Genera Mappa e Visualizza"):
     testo = estrai_testo_da_pdf(pdf_file)
     idx_terms = estrai_indice(testo)
-    mappa = genera_mappa_concettuale(testo, central_node, index_terms=idx_terms)
-    st.session_state['mappa'] = mappa
+    st.session_state['mappa'] = genera_mappa_concettuale(testo, central_node, index_terms=idx_terms)
 
 if 'mappa' in st.session_state:
     mappa = st.session_state['mappa']
-    tf = mappa['tf']
-    edges_raw = mappa['edges']
+    tf, edges_raw = mappa['tf'], mappa['edges']
 
+    # Costruzione grafo NetworkX
     G = nx.DiGraph()
     for n in tf:
         if n != central_node:
@@ -175,50 +165,40 @@ if 'mappa' in st.session_state:
         if e['from'] != central_node and e['to'] != central_node:
             G.add_edge(e['from'], e['to'], relation=e.get('relation',''))
 
-    nodes = [
-        Node(id=n, label=n, size=10 + (tf.get(n,0)**0.5)*20)
-        for n in G.nodes()
-    ]
-    edges = [
-        Edge(source=src, target=dst, label=data.get('relation',''))
-        for src, dst, data in G.edges(data=True)
-    ]
+    # Nod­i e arch­i per streamlit-agraph
+    nodes = [Node(id=n, label=n, size=10 + (tf.get(n,0)**0.5)*20) for n in G.nodes()]
+    edges = [Edge(source=src, target=dst, label=data.get('relation','')) 
+             for src, dst, data in G.edges(data=True)]
 
+    # Configurazione
     config = Config(
         width="100%", height=700, directed=True,
-        layout='radial',          # <-- LAYOUT RADIALE SEMPRE
+        layout='radial',              # Layout radiale sempre
         nodeHighlightBehavior=True,
         highlightColor="#F7A7A6",
         collapsible=False,
         initialZoom=1.0,
         node={'fontSize': 12}
     )
+    # Serializza in dict
+    try:
+        options = config.to_dict()
+    except AttributeError:
+        options = config.__dict__
 
     st.subheader("Mappa Concettuale – Radiale")
-    agraph(nodes=nodes, edges=edges, options=config)
 
+    # Mostra con try/except per tracciare l’errore completo
+    try:
+        agraph(nodes=nodes, edges=edges, options=options)
+    except Exception as e:
+        st.error("Errore nel componente agraph:")
+        st.exception(e)
+
+    # Bottone per scaricare JSON
     st.download_button(
         "Scarica JSON",
         data=json.dumps(mappa, ensure_ascii=False, indent=2),
         file_name="mappa_completa.json",
         mime='application/json'
     )
-
-    # Se vuoi esportare in HTML con pyvis, scommenta e installa pyvis:
-    # from pyvis.network import Network
-    #
-    # def salva_mappa_html(nodes, edges, filename="mappa_radiale.html"):
-    #     net = Network(height="750px", width="100%", directed=True)
-    #     for node in nodes:
-    #         net.add_node(node.id, label=node.label, size=node.size)
-    #     for edge in edges:
-    #         net.add_edge(edge.source, edge.target, label=edge.label)
-    #     net.show(filename)
-    #     return filename
-    #
-    # if st.button("Esporta come HTML"):
-    #     html_file = salva_mappa_html(nodes, edges)
-    #     with open(html_file, "r", encoding="utf-8") as f:
-    #         html_content = f.read()
-    #     st.download_button("Scarica HTML", data=html_content,
-    #                        file_name="mappa_radiale.html", mime="text/html")
