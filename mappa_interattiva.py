@@ -82,6 +82,10 @@ def merge_structures(acc: dict[str, set[str]], part: dict[str, list[str]]):
 # === DISEGNO MIND MAP ===
 
 def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
+    # Rimuovi eventuale chiave identica al nodo centrale
+    if central_node in branches:
+        del branches[central_node]
+
     primari = list(branches.keys())
     metà = len(primari) // 2
     left, right = primari[:metà], primari[metà:]
@@ -107,41 +111,44 @@ def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
 
     fig, ax = plt.subplots(figsize=(20, 12))
     ax.axis("off")
-    ax.text(0.5,0.5, central_node, fontsize=16, ha="center", va="center",
+    ax.text(0.5, 0.5, central_node,
+            fontsize=16, ha="center", va="center",
             bbox=dict(boxstyle="round", fc="lightblue"))
 
     # linee ai rami
-    for node,depth,*_ in flat_L:
-        if depth==0:
-            ax.plot([0.5,0.25],[0.5,posL[node]],"gray")
-    for node,depth,*_ in flat_R:
-        if depth==0:
-            ax.plot([0.5,0.75],[0.5,posR[node]],"gray")
+    for node, depth, *rest in flat_L:
+        if depth == 0:
+            ax.plot([0.5, 0.25], [0.5, posL[node]], "gray")
+    for node, depth, *rest in flat_R:
+        if depth == 0:
+            ax.plot([0.5, 0.75], [0.5, posR[node]], "gray")
 
     # etichette e linee interne
-    for node,depth,*rest in flat_L:
+    for node, depth, *rest in flat_L:
         x = 0.25 - 0.03*depth
         y = posL[node]
         txt = (f"- {node}") if depth else node
-        ax.text(x,y,txt, fontsize=12 if depth==0 else 10,
+        ax.text(x, y, txt,
+                fontsize=12 if depth == 0 else 10,
                 ha="center", va="center",
                 bbox=dict(boxstyle="round",
-                          fc="lavender" if depth==0 else "white"))
-        if depth==1:
+                          fc="lavender" if depth == 0 else "white"))
+        if depth == 1:
             parent = rest[0]
-            ax.plot([0.25,0.25],[posL[parent],y],"gray")
+            ax.plot([0.25, 0.25], [posL[parent], y], "gray")
 
-    for node,depth,*rest in flat_R:
+    for node, depth, *rest in flat_R:
         x = 0.75 + 0.03*depth
         y = posR[node]
         txt = (f"- {node}") if depth else node
-        ax.text(x,y,txt, fontsize=12 if depth==0 else 10,
+        ax.text(x, y, txt,
+                fontsize=12 if depth == 0 else 10,
                 ha="center", va="center",
                 bbox=dict(boxstyle="round",
-                          fc="lavender" if depth==0 else "white"))
-        if depth==1:
+                          fc="lavender" if depth == 0 else "white"))
+        if depth == 1:
             parent = rest[0]
-            ax.plot([0.75,0.75],[posR[parent],y],"gray")
+            ax.plot([0.75, 0.75], [posR[parent], y], "gray")
 
     plt.tight_layout()
     st.pyplot(fig)
@@ -159,7 +166,7 @@ if st.button("Genera e Mostra Mappa") and doc:
     gif_path = "img/Progetto video 1.gif"
     gif_ph = st.empty()
     if os.path.exists(gif_path):
-        b64 = base64.b64encode(open(gif_path,"rb").read()).decode()
+        b64 = base64.b64encode(open(gif_path, "rb").read()).decode()
         gif_ph.markdown(f"<img src='data:image/gif;base64,{b64}' width=200/>", unsafe_allow_html=True)
 
     testo = estrai_testo_da_pdf(doc)
@@ -176,6 +183,15 @@ if st.button("Genera e Mostra Mappa") and doc:
         prog.progress(pct)
 
         part = genera_struttura_per_blocco(blk, central_node)
+
+        # Rimuovi nodo centrale se presente come ramo
+        if central_node in part:
+            del part[central_node]
+
+        # Stampa a video per debug
+        st.markdown(f"**Blocco {idx}**")
+        st.code(part, language="python")
+
         merge_structures(accum, part)
 
     prog.empty()
