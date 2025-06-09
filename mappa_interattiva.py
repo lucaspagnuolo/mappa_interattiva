@@ -4,13 +4,11 @@ import re
 import time
 import pdfplumber
 import networkx as nx
-from math import cos, sin
 from mistralai import Mistral, SDKError
 from pyvis.network import Network
 import streamlit as st
 import streamlit.components.v1 as components  # ← questa riga mancava
 import base64
-from PIL import Image  # serve solo per essere sicuri di leggere il file senza errori
 
 # === CONFIGURAZIONE API ===
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
@@ -184,15 +182,16 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
         'layout': {'hierarchical': {'enabled': True, 'direction': 'LR', 'sortMethod': 'hubsize'}},
         'physics': {'hierarchicalRepulsion': {'nodeDistance': 200}}
     }
+    # Applica opzioni direttamente al grafico PyVis
     net.set_options(json.dumps({'layout': options['layout'], 'physics': options['physics']}))
 
     for n in G.nodes():
-        size = 10 + (tf.get(n, 0) ** 0.5) * 20
+        size = 10 + (tf.get(n, 0)**0.5) * 20
         net.add_node(n, label=n, size=size, group=group_map.get(n, 0))
     for src, dst, data in G.edges(data=True):
         net.add_edge(src, dst, label=data.get('relation', ''))
 
-    net.show_buttons(filter_=['layout', 'physics', 'nodes', 'edges'])
+    # Non utilizziamo show_buttons per evitare errori di configurazione
     html_file = f"temp_graph_{int(time.time())}.html"
     net.save_graph(html_file)
     st.success("Grafo generato")
@@ -216,74 +215,4 @@ json_name = st.text_input("Nome JSON (senza estensione)", value="mappa_completa"
 html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
 
 # 2) Path della GIF (non serve ricavarne dimensioni con PIL)
-gif_path = "img/Progetto video 1.gif"
-if not os.path.exists(gif_path):
-    st.warning("GIF non trovata: controlla che il file esista in img/Progetto video 1.gif")
-
-# 3) Placeholder per la GIF
-gif_placeholder = st.empty()
-
-# 4) Bottone "Genera JSON completo"
-if st.button("Genera JSON completo") and doc:
-    if os.path.exists(gif_path):
-        with open(gif_path, "rb") as f:
-            gif_bytes = f.read()
-        gif_b64 = base64.b64encode(gif_bytes).decode("utf-8")
-        img_html = f"""
-        <div style="display:flex; justify-content:center; align-items:center; background:transparent; margin:0; padding:0;">
-          <img 
-            src="data:image/gif;base64,{gif_b64}"
-            style="
-              max-width:300px;
-              width:100%;
-              height:auto;
-              display:block;
-              margin:0;
-              padding:0;
-            "
-            alt="Loading..."
-          />
-        </div>
-        """
-        gif_placeholder.markdown(img_html, unsafe_allow_html=True)
-    else:
-        gif_placeholder.markdown("<p style='text-align:center; color:red;'>GIF non trovata</p>", unsafe_allow_html=True)
-
-    start_time = time.time()
-    testo = estrai_testo_da_pdf(doc)
-    index_terms = estrai_indice(testo)
-    mappa = genera_mappa_concettuale(testo, central_node, index_terms=index_terms)
-    elapsed = (time.time() - start_time) / 60
-
-    gif_placeholder.empty()
-
-    st.session_state['mappa'] = mappa
-    st.session_state['testo'] = testo
-    st.session_state['central_node'] = central_node
-    st.session_state['index_terms'] = index_terms
-
-    st.info(f"JSON generato in {elapsed:.2f} minuti")
-    st.subheader("JSON Completo (con tf e termini indice)")
-    st.json(mappa)
-    json_bytes = json.dumps(mappa, ensure_ascii=False, indent=2).encode('utf-8')
-    st.download_button("Scarica JSON", data=json_bytes, file_name=f"{json_name}.json", mime='application/json')
-
-# 5) Generazione grafo interattivo
-if 'mappa' in st.session_state:
-    mappa = st.session_state['mappa']
-    central_node = st.session_state.get('central_node', central_node)
-    st.subheader("Seleziona soglia per filtro nodo")
-    soglia_input = st.text_input("Soglia occorrenze (numero intero)", value="1")
-    if st.button("Visualizza grafo con soglia"):
-        try:
-            soglia = int(soglia_input)
-            start_time = time.time()
-            html_file = crea_grafo_interattivo(mappa, central_node, soglia)
-            elapsed = (time.time() - start_time) / 60
-            st.info(f"Grafo generato in {elapsed:.2f} minuti (soglia >= {soglia})")
-            st.subheader(f"Grafo (soglia >= {soglia})")
-            content = open(html_file, 'r', encoding='utf-8').read()
-            components.html(content, height=600, scrolling=True)
-            st.download_button("Scarica HTML", data=content, file_name=f"{html_name}_s{soglia}.html", mime='text/html')
-        except ValueError:
-            st.error("Inserisci un numero intero valido per la soglia.")
+...
