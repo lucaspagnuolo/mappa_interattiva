@@ -40,7 +40,7 @@ def suddividi_testo_con_overlap(testo: str, max_chars: int = 15000, overlap_char
 
 def genera_struttura_per_blocco(block_text: str, central_node: str) -> dict:
     prompt = f"""
-Leggi questo estratto di PDF e individua i rami concettuali intorno al nodo centrale "{central_node}".
+Leggi questo PDF e individua tutti i rami concettuali intorno al nodo centrale "{central_node}".
 **1.** Fornisci una brevissima spiegazione (una sola frase).
 **2.** Poi restituisci **solo** un JSON valido **tra triple backticks**, con questa forma:
 
