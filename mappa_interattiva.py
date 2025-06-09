@@ -113,109 +113,162 @@ def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
     flat_L, flat_R = flatten(left), flatten(right)
     def compute_pos(flat):
         n = len(flat)
-        ys = [0.9 - i * (0.8 / (n - 1)) for i in range(n)] if n>1 else [0.5]
+        ys = [0.9 - i * (0.8 / (n - 1)) for i in range(n)] if n > 1 else [0.5]
         return {item[0]: y for item, y in zip(flat, ys)}
     posL, posR = compute_pos(flat_L), compute_pos(flat_R)
 
     fig, ax = plt.subplots(figsize=(20, max(12, (len(flat_L)+len(flat_R)+1)*0.3)))
     ax.axis('off')
-    total_nodes = len(flat_L)+len(flat_R)+1
-    main_fs = 16 if total_nodes<=50 else max(8,16*50/total_nodes)
-    sub_fs = main_fs*0.8
-    ax.text(0.5,0.5,central_node,fontsize=main_fs,ha='center',va='center',bbox=dict(boxstyle='round',fc='lightblue'))
-    for node,depth,*rest in flat_L:
-        if depth==0: ax.plot([0.5,0.25],[0.5,posL[node]],'gray')
-    for node,depth,*rest in flat_R:
-        if depth==0: ax.plot([0.5,0.75],[0.5,posR[node]],'gray')
-    for node,depth,*rest in flat_L:
-        x=0.25-0.03*depth; y=posL[node]; fs=main_fs if depth==0 else sub_fs
-        txt=node if depth==0 else f"- {node}"
-        ax.text(x,y,txt,fontsize=fs,ha='center',va='center',bbox=dict(boxstyle='round',fc='lavender' if depth==0 else 'white'))
-        if depth==1: ax.plot([0.25,0.25],[posL[rest[0]],y],'gray')
-    for node,depth,*rest in flat_R:
-        x=0.75+0.03*depth; y=posR[node]; fs=main_fs if depth==0 else sub_fs
-        txt=node if depth==0 else f"- {node}"
-        ax.text(x,y,txt,fontsize=fs,ha='center',va='center',bbox=dict(boxstyle='round',fc='lavender' if depth==0 else 'white'))
-        if depth==1: ax.plot([0.75,0.75],[posR[rest[0]],y],'gray')
-    plt.tight_layout(); st.pyplot(fig)
+    total_nodes = len(flat_L) + len(flat_R) + 1
+    main_fs = 16 if total_nodes <= 50 else max(8, 16 * 50 / total_nodes)
+    sub_fs = main_fs * 0.8
+
+    ax.text(0.5, 0.5, central_node, fontsize=main_fs, ha='center', va='center', bbox=dict(boxstyle='round', fc='lightblue'))
+    for node, depth, *rest in flat_L:
+        if depth == 0:
+            ax.plot([0.5, 0.25], [0.5, posL[node]], 'gray')
+    for node, depth, *rest in flat_R:
+        if depth == 0:
+            ax.plot([0.5, 0.75], [0.5, posR[node]], 'gray')
+    for node, depth, *rest in flat_L:
+        x = 0.25 - 0.03 * depth
+        y = posL[node]
+        fs = main_fs if depth == 0 else sub_fs
+        txt = node if depth == 0 else f"- {node}"
+        ax.text(x, y, txt, fontsize=fs, ha='center', va='center', bbox=dict(boxstyle='round', fc='lavender' if depth == 0 else 'white'))
+        if depth == 1:
+            ax.plot([0.25, 0.25], [posL[rest[0]], y], 'gray')
+    for node, depth, *rest in flat_R:
+        x = 0.75 + 0.03 * depth
+        y = posR[node]
+        fs = main_fs if depth == 0 else sub_fs
+        txt = node if depth == 0 else f"- {node}"
+        ax.text(x, y, txt, fontsize=fs, ha='center', va='center', bbox=dict(boxstyle='round', fc='lavender' if depth == 0 else 'white'))
+        if depth == 1:
+            ax.plot([0.75, 0.75], [posR[rest[0]], y], 'gray')
+    plt.tight_layout()
+    st.pyplot(fig)
 
 # === MAPPA CIRCOLARE ===
 def estrai_indice(testo: str) -> list[str]:
-    righe=testo.splitlines()
-    try: start=next(i for i,r in enumerate(righe) if re.match(r'^(Indice|Sommario)\b',r, re.IGNORECASE))
-    except StopIteration: return []
-    termini=[]
-    for r in righe[start+1:]:
-        if not r.strip(): break
-        m=re.match(r'^(?P<termine>.+?)\s+\.{2,}\s*\d+|\s+\d+$',r)
-        if m: termini.append(m.group('termine').strip())
+    righe = testo.splitlines()
+    try:
+        start = next(i for i, r in enumerate(righe) if re.match(r'^(Indice|Sommario)\b', r, re.IGNORECASE))
+    except StopIteration:
+        return []
+    termini = []
+    for r in righe[start + 1:]:
+        if not r.strip():
+            break
+        m = re.match(r'^(?P<termine>.+?)\s+\.{2,}\s*\d+|\s+\d+$', r)
+        if m:
+            termini.append(m.group('termine').strip())
         else:
-            parti=r.rsplit(' ',1)
-            if len(parti)==2 and parti[1].isdigit(): termini.append(parti[0].strip())
+            parti = r.rsplit(' ', 1)
+            if len(parti) == 2 and parti[1].isdigit():
+                termini.append(parti[0].strip())
     return termini
 
 
 def filtra_paragrafi_sottoparagrafi(index_terms: list[str]) -> list[str]:
-    return [t for t in index_terms if re.match(r'^\d+(?:\.\d+)*\s+[A-ZÀ-ÖØ-Ý]', t)]
+    pattern = re.compile(r'^\d+(?:\.\d+)*\s+[A-ZÀ-ÖØ-Ý]')
+    return [t for t in index_terms if pattern.match(t)]
 
 
-def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[str]=None) -> dict:
-    blocchi=suddividi_testo(testo)
-    ris=[]; status=st.empty(); prog=st.progress(0)
-    totale=len(blocchi)
-    for idx,b in enumerate(blocchi,1):
-        pct=int(((idx-1)/totale)*100)
-        status.info(f"Generazione mappa... {pct}%"); prog.progress(pct)
-        prompt=("Rispondi SOLO con un JSON valido contenente i campi 'nodes' e 'edges'. "
-                "Includi nodes ed edges con campi 'from','to','relation'. "
-                f"Nodo centrale: '{central_node}'\n\nBlocco {idx}/{totale}:\n{b}")
-        resp=call_with_retries({'model':MODEL,'messages':[{'role':'user','content':prompt}]})
-        txt=resp.choices[0].message.content.strip()
-        if txt.startswith('```'):
-            txt='\n'.join(txt.splitlines()[1:-1])
-        start,end=txt.find('{'),txt.rfind('}')+1
-        raw=txt[start:end] if start!=-1 and end!=-1 else ''
-        try: ris.append(json.loads(raw))
-        except: st.warning(f"Parsing fallito per blocco {idx}")
-    status.success("Mappa concettuale generata"); prog.empty()
-    raw_nodes=set(); raw_edges=[]
+def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[str] = None) -> dict:
+    blocchi = suddividi_testo(testo)
+    ris = []
+    status = st.empty()
+    progress = st.progress(0)
+    totale_blocchi = len(blocchi)
+
+    for idx, b in enumerate(blocchi, 1):
+        percentuale = int(((idx - 1) / totale_blocchi) * 100)
+        status.info(f"Generazione mappa... {percentuale}%")
+        progress.progress(percentuale)
+
+        prompt = (
+            "Rispondi SOLO con un JSON valido contenente i campi 'nodes' e 'edges'."
+            " Includi nodes ed edges con campi 'from','to','relation'."
+            f" Nodo centrale: '{central_node}'\n\nBlocco {idx}/{totale_blocchi}:\n{b}"
+        )
+        resp = call_with_retries({'model': MODEL, 'messages': [{'role': 'user', 'content': prompt}]})
+        txt = resp.choices[0].message.content.strip()
+        if txt.startswith("```"):
+            lines = txt.splitlines()
+            txt = "\n".join(lines[1:-1])
+        start, end = txt.find('{'), txt.rfind('}') + 1
+        raw = txt[start:end] if start != -1 and end != -1 else ''
+        try:
+            ris.append(json.loads(raw))
+        except json.JSONDecodeError:
+            st.warning(f"Parsing fallito per blocco {idx}")
+
+    status.success("Mappa concettuale generata")
+    progress.empty()
+
+    raw_nodes = set()
+    raw_edges = []
     for m in ris:
-        for n in m.get('nodes',[]): nid=n if isinstance(n,str) else n.get('id','');
-            if isinstance(nid,str) and nid.strip() and not re.match(r'^(?:\d+|n\d+)$',nid,flags=re.IGNORECASE): raw_nodes.add(nid.strip())
-        for e in m.get('edges',[]): frm,to=e.get('from'),e.get('to')
-            if frm in raw_nodes and to in raw_nodes: raw_edges.append({'from':frm,'to':to,'relation':e.get('relation','')})
-    tf={n:len(re.findall(rf"\b{re.escape(n)}\b",testo,flags=re.IGNORECASE)) for n in raw_nodes}
-    idxs=index_terms or []
-    filt=filtra_paragrafi_sottoparagrafi(idxs)
-    BOOST=5
+        for n in m.get('nodes', []):
+            nid = n if isinstance(n, str) else n.get('id', '')
+            if isinstance(nid, str):
+                nid_str = nid.strip()
+                if nid_str and not re.match(r'^(?:\d+|n\d+)$', nid_str, flags=re.IGNORECASE):
+                    raw_nodes.add(nid_str)
+        for e in m.get('edges', []):
+            frm, to = e.get('from'), e.get('to')
+            if frm in raw_nodes and to in raw_nodes:
+                raw_edges.append({'from': frm, 'to': to, 'relation': e.get('relation', '')})
+
+    tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in raw_nodes}
+    index_terms = index_terms or []
+    filtered_index = filtra_paragrafi_sottoparagrafi(index_terms)
+    BOOST = 5
     for node in list(raw_nodes):
-        if any(re.search(rf"\b{re.escape(term)}\b",node,flags=re.IGNORECASE) for term in filt): tf[node]=tf.get(node,0)+BOOST
-    return {'nodes':list(raw_nodes),'edges':raw_edges,'tf':tf,'index_terms':filt}
+        if any(re.search(rf"\b{re.escape(term)}\b", node, flags=re.IGNORECASE) for term in filtered_index):
+            tf[node] = tf.get(node, 0) + BOOST
+
+    return {'nodes': list(raw_nodes), 'edges': raw_edges, 'tf': tf, 'index_terms': filtered_index}
 
 
 def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     st.info(f"Creazione grafo con soglia >= {soglia}...")
-    tf=mappa.get('tf',{}); idxs=set(mappa.get('index_terms',[]))
-    valid={n for n,c in tf.items() if c>=soglia}|idxs|{central_node}
-    G_full=nx.DiGraph(); G_full.add_nodes_from(valid)
+    tf = mappa.get('tf', {})
+    index_terms = set(mappa.get('index_terms', []))
+    valid_nodes = {n for n, count in tf.items() if count >= soglia} | index_terms | {central_node}
+
+    G_full = nx.DiGraph()
+    G_full.add_nodes_from(valid_nodes)
     for e in mappa['edges']:
-        frm,to=e['from'],e['to']
-        if frm in valid and to in valid: G_full.add_edge(frm,to,relation=e.get('relation',''))
-    reachable={central_node}
-    if central_node in G_full: reachable|=nx.descendants(G_full,central_node)
-    G=G_full.subgraph(reachable).copy()
-    communities=list(nx.algorithms.community.louvain_communities(G.to_undirected())); group={n:i for i,comm in enumerate(communities) for n in comm}
-    net=Network(directed=True,height='650px',width='100%'); net.force_atlas_2based(gravity=-200,central_gravity=0.01,spring_length=800,spring_strength=0.001,damping=0.7)
-    for n in G.nodes(): size=10+(tf.get(n,0)**0.5)*20; net.add_node(n,label=n,group=group.get(n,0),size=size,x=0 if n==central_node else None,y=0 if n==central_node else None,fixed={'x':n==central_node,'y':n==central_node})
-    for src,dst,data in G.edges(data=True): net.add_edge(src,dst,label=data.get('relation',''))
-    net.show_buttons(filter_=['physics','nodes','edges'])
-    html_file=f"temp_graph_{int(time.time())}.html"; net.save_graph(html_file)
+        frm, to = e['from'], e['to']
+        if frm in valid_nodes and to in valid_nodes:
+            G_full.add_edge(frm, to, relation=e.get('relation', ''))
+
+    reachable = {central_node}
+    if central_node in G_full:
+        reachable |= nx.descendants(G_full, central_node)
+    G = G_full.subgraph(reachable).copy()
+
+    communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
+    group = {n: i for i, comm in enumerate(communities) for n in comm}
+
+    net = Network(directed=True, height='650px', width='100%')
+    net.force_atlas_2based(gravity=-200, central_gravity=0.01, spring_length=800, spring_strength=0.001, damping=0.7)
+    for n in G.nodes():
+        size = 10 + (tf.get(n, 0) ** 0.5) * 20
+        net.add_node(n, label=n, group=group.get(n, 0), size=size, x=0 if n == central_node else None, y=0 if n == central_node else None, fixed={'x': n == central_node, 'y': n == central_node})
+    for src, dst, data in G.edges(data=True):
+        net.add_edge(src, dst, label=data.get('relation', ''))
+    net.show_buttons(filter=['physics', 'nodes', 'edges'])
+    html_file = f"temp_graph_{int(time.time())}.html"
+    net.save_graph(html_file)
     st.success("Grafo generato")
     return html_file
 
 # === STREAMLIT APP ===
 st.set_page_config(page_title="Generatore Mappa Concettuale PDF", layout="wide")
-mode = st.sidebar.selectbox("Seleziona modalità", ["Mappa Gerarchica", "Mappa Circolare"])
+mode = st.sidebar.selectbox("Seleziona modalità", ["Mappa Gerarchica", "Mappa Circolare"]
 
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
 central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
@@ -225,41 +278,52 @@ if mode == "Mappa Gerarchica":
         testo = estrai_testo_da_pdf(doc)
         blocchi = suddividi_testo(testo)
         accum = {}
-        status = st.empty(); prog = st.progress(0)
+        status = st.empty()
+        prog = st.progress(0)
         total = len(blocchi)
-        for idx,blk in enumerate(blocchi,1):
-            pct=int(idx/total*100); status.info(f"Generazione... {pct}%"); prog.progress(pct)
+        for idx, blk in enumerate(blocchi, 1):
+            pct = int(idx / total * 100)
+            status.info(f"Generazione... {pct}%")
+            prog.progress(pct)
             part = genera_struttura_per_blocco(blk, central_node)
-            if not part: st.warning(f"Blocco {idx}: fallback"); part={"[automatic]": [central_node]}
-            st.markdown(f"**Blocco {idx}**"); st.code(part, language='python')
+            if not part:
+                st.warning(f"Blocco {idx}: fallback automatico")
+                part = {"[automatic]": [central_node]}
+            st.markdown(f"**Blocco {idx}**")
+            st.code(part, language="python")
             merge_structures(accum, part)
-        prog.empty(); status.success("Fatto!")
+        prog.empty()
+        status.success("Mappa Gerarchica completata!")
         draw_mind_map(central_node, accum)
-
 else:
     json_name = st.text_input("Nome JSON (senza estensione)", value="mappa_completa")
     html_name = st.text_input("Nome HTML (senza estensione)", value="grafico")
     soglia_input = st.text_input("Soglia occorrenze (numero intero)", value="1")
 
     if st.button("Genera JSON Completo") and doc:
-        gif_ph = st.empty(); gif_path="img/Progetto video 1.gif"
+        gif_ph = st.empty()
+        gif_path = "img/Progetto video 1.gif"
         if os.path.exists(gif_path):
-            b64 = base64.b64encode(open(gif_path,'rb').read()).decode(); gif_ph.markdown(f"<img src='data:image/gif;base64,{b64}' width=200/>",unsafe_allow_html=True)
+            b64 = base64.b64encode(open(gif_path, 'rb').read()).decode()
+            gif_ph.markdown(f"<img src='data:image/gif;base64,{b64}' width=200/>", unsafe_allow_html=True)
         testo = estrai_testo_da_pdf(doc)
         index_terms = estrai_indice(testo)
         mappa = genera_mappa_concettuale(testo, central_node, index_terms=index_terms)
         gif_ph.empty()
-        st.session_state['mappa']=mappa; st.session_state['testo']=testo; st.session_state['central_node']=central_node; st.session_state['index_terms']=index_terms
-        st.subheader("JSON Completo"); st.json(mappa)
-        st.download_button("Scarica JSON", data=json.dumps(mappa,ensure_ascii=False,indent=2).encode(), file_name=f"{json_name}.json", mime='application/json')
+        st.session_state['mappa'] = mappa
+        st.session_state['central_node'] = central_node
+        st.session_state['index_terms'] = index_terms
+        st.subheader("JSON Completo (con tf e termini indice)")
+        st.json(mappa)
+        st.download_button("Scarica JSON", data=json.dumps(mappa, ensure_ascii=False, indent=2).encode(), file_name=f"{json_name}.json", mime='application/json')
 
     if 'mappa' in st.session_state:
-        mappa=st.session_state['mappa']; central_node=st.session_state['central_node']; index_terms=st.session_state['index_terms']
-        if st.button("Visualizza Grafo"): 
+        if st.button("Visualizza Grafo"):
             try:
-                soglia=int(soglia_input)
-                html_file=crea_grafo_interattivo(mappa, central_node, soglia)
-                content=open(html_file,'r',encoding='utf-8').read()
+                soglia = int(soglia_input)
+                html_file = crea_grafo_interattivo(st.session_state['mappa'], st.session_state['central_node'], soglia)
+                content = open(html_file, 'r', encoding='utf-8').read()
                 components.html(content, height=600, scrolling=True)
                 st.download_button("Scarica HTML", data=content, file_name=f"{html_name}_s{soglia}.html", mime='text/html')
-            except ValueError: st.error("Inserisci un numero intero valido per la soglia.")
+            except ValueError:
+                st.error("Inserisci un numero intero valido per la soglia.")
