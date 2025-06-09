@@ -177,49 +177,22 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     except Exception:
         group_map = {n: 0 for n in G.nodes()}
 
-    # Creazione rete PyVis con layout gerarchico sinistra/destra
+    # Creazione rete PyVis con layout gerarchico
     net = Network(directed=True, height='650px', width='100%')
     net.toggle_physics(False)
-    # Abilita layout gerarchico: da centro verso sinistra/destra
     options = {
         'layout': {'hierarchical': {'enabled': True, 'direction': 'LR', 'sortMethod': 'hubsize'}},
         'physics': {'hierarchicalRepulsion': {'nodeDistance': 200}}
     }
-    net.set_options(json.dumps({'nodes': {}, 'edges': {}, 'layout': options['layout'], 'physics': options['physics']}))
+    net.set_options(json.dumps({'layout': options['layout'], 'physics': options['physics']}))
 
-    # Aggiungi nodi e archi
     for n in G.nodes():
         size = 10 + (tf.get(n, 0) ** 0.5) * 20
-        net.add_node(
-            n,
-            label=n,
-            size=size,
-            group=group_map.get(n, 0)
-        )
+        net.add_node(n, label=n, size=size, group=group_map.get(n, 0))
     for src, dst, data in G.edges(data=True):
         net.add_edge(src, dst, label=data.get('relation', ''))
+
     net.show_buttons(filter_=['layout', 'physics', 'nodes', 'edges'])
-    html_file = f"temp_graph_{int(time.time())}.html"
-    net.save_graph(html_file)
-    st.success("Grafo generato")
-    return html_file
-    net = Network(directed=True, height='650px', width='100%')
-    net.toggle_physics(False)
-    for n in G.nodes():
-        size = 10 + (tf.get(n, 0) ** 0.5) * 20
-        x, y = positions.get(n, (None, None))
-        net.add_node(
-            n,
-            label=n,
-            x=x,
-            y=y,
-            fixed={'x': True, 'y': True},
-            size=size,
-            group=group_map.get(n, 0)
-        )
-    for src, dst, data in G.edges(data=True):
-        net.add_edge(src, dst, label=data.get('relation', ''))
-    net.show_buttons(filter_=['nodes', 'edges'])
     html_file = f"temp_graph_{int(time.time())}.html"
     net.save_graph(html_file)
     st.success("Grafo generato")
