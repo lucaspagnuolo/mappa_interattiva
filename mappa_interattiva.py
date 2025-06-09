@@ -7,7 +7,7 @@ import networkx as nx
 from mistralai import Mistral, SDKError
 from pyvis.network import Network
 import streamlit as st
-import streamlit.components.v1 as components  # ← questa riga mancava
+import streamlit.components.v1 as components
 import base64
 
 # === CONFIGURAZIONE API ===
@@ -31,8 +31,7 @@ def estrai_testo_da_pdf(file) -> str:
 def estrai_indice(testo: str) -> list[str]:
     righe = testo.splitlines()
     try:
-        start = next(i for i, r in enumerate(righe)
-                     if re.match(r'^(Indice|Sommario)\b', r, re.IGNORECASE))
+        start = next(i for i, r in enumerate(righe) if re.match(r'^(Indice|Sommario)\b', r, re.IGNORECASE))
     except StopIteration:
         return []
     termini = []
@@ -133,8 +132,7 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
             if frm in raw_nodes and to in raw_nodes:
                 raw_edges.append({'from': frm, 'to': to, 'relation': e.get('relation', '')})
 
-    tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE))
-          for n in raw_nodes}
+    tf = {n: len(re.findall(rf"\b{re.escape(n)}\b", testo, flags=re.IGNORECASE)) for n in raw_nodes}
 
     index_terms = index_terms or []
     filtered_index = filtra_paragrafi_sottoparagrafi(index_terms)
@@ -154,7 +152,6 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     index_terms = set(mappa.get('index_terms', []))
     valid_nodes = {n for n, count in tf.items() if count >= soglia} | index_terms | {central_node}
 
-    # Costruzione grafo filtrato
     G_full = nx.DiGraph()
     G_full.add_nodes_from(valid_nodes)
     for e in mappa['edges']:
@@ -162,27 +159,23 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
         if frm in valid_nodes and to in valid_nodes:
             G_full.add_edge(frm, to, relation=e.get('relation', ''))
 
-    # Sotto-grafo raggiungibile
     reachable = {central_node}
     if central_node in G_full:
         reachable |= nx.descendants(G_full, central_node)
     G = G_full.subgraph(reachable).copy()
 
-    # Clustering per gruppi di colore
     try:
         communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
         group_map = {n: i for i, comm in enumerate(communities) for n in comm}
     except Exception:
         group_map = {n: 0 for n in G.nodes()}
 
-    # Creazione rete PyVis con layout gerarchico
     net = Network(directed=True, height='650px', width='100%')
     net.toggle_physics(False)
     options = {
         'layout': {'hierarchical': {'enabled': True, 'direction': 'LR', 'sortMethod': 'hubsize'}},
         'physics': {'hierarchicalRepulsion': {'nodeDistance': 200}}
     }
-    # Applica opzioni direttamente al grafico PyVis
     net.set_options(json.dumps({'layout': options['layout'], 'physics': options['physics']}))
 
     for n in G.nodes():
@@ -199,38 +192,28 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
 # === STREAMLIT UI ===
 
 st.set_page_config(page_title="Generatore Mappa Concettuale PDF", layout="wide")
-
 col1, col2 = st.columns([5, 4])
 with col1:
     st.title("Generatore Mappa Concettuale PDF")
 with col2:
     st.empty()
 
-# 1) Caricamento PDF e parametri base
-
 doc = st.file_uploader("Carica il PDF", type=['pdf'])
 central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
 json_name = st.text_input("Nome JSON (senza estensione)", value="mappa_completa")
 html_name = st.text_input("Nome file HTML (senza estensione)", value="grafico")
 
-# 2) Path della GIF (non serve ricavarne dimensioni con PIL)
 gif_path = "img/Progetto video 1.gif"
 if not os.path.exists(gif_path):
     st.warning("GIF non trovata: controlla che il file esista in img/Progetto video 1.gif")
 
-# 3) Placeholder per la GIF
 gif_placeholder = st.empty()
 
-# 4) Bottone "Genera JSON completo"
 if st.button("Genera JSON completo") and doc:
     if os.path.exists(gif_path):
         with open(gif_path, "rb") as f:
             gif_bytes = f.read()
         gif_b64 = base64.b64encode(gif_bytes).decode("utf-8")
-        img_html = f"""
-        <div style="display:flex; justify-content:center; align-items:center; background:transparent; margin:0; padding:0;">
-          <img 
-            src="data:image/gif;base64,{gif_b64}"
-            style="
-              max-width:300px;
-              width:100
+        img_html = (
+            f"<div style='display:flex;justify-content:center;align-items:center;'>"
+            f"<img src='data:image/gif;base64,{gif_b64}' "\
