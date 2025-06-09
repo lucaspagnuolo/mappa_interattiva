@@ -188,7 +188,7 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
             y = radius_lvl * sin(angle)
             positions[node] = (x, y)
 
-    net = Network(directed=True, height='650px', width='100%')(directed=True, height='650px', width='100%')
+    net = Network(directed=True, height='650px', width='100%')
     net.toggle_physics(False)  # disabilita la fisica per layout fisso
     for n in G.nodes():
         size = 10 + (tf.get(n, 0) ** 0.5) * 20
