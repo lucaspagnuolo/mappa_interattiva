@@ -25,26 +25,19 @@ def estrai_testo_da_pdf(file) -> str:
     progress.empty()
     return "\n".join(testo)
 
-def suddividi_testo(testo: str, max_chars: int = 15000) -> list[str]:
+def suddividi_testo_con_overlap(testo: str, max_chars: int = 15000, overlap_chars: int = 500) -> list[str]:
     parole = testo.split()
-    blocchi, corrente, lunghezza = [], [], 0
-    for parola in parole:
-        if lunghezza + len(parola) + 1 > max_chars:
-            blocchi.append(" ".join(corrente))
-            corrente, lunghezza = [], 0
-        corrente.append(parola)
-        lunghezza += len(parola) + 1
-    if corrente:
+    blocchi = []
+    i = 0
+    while i < len(parole):
+        corrente = parole[i:i + max_chars]
         blocchi.append(" ".join(corrente))
+        i += (max_chars - overlap_chars)
     return blocchi
 
 # === GENERAZIONE STRUTTURA VIA LLM A BLOCCHI ===
 
 def genera_struttura_per_blocco(block_text: str, central_node: str) -> dict:
-    """
-    Chiama il modello su un singolo blocco di testo
-    e restituisce un dict {Branch: [sub1, sub2, ...], ...}
-    """
     prompt = f"""
 Leggi questo estratto di PDF e restituisci SOLO un dizionario Python
 (nessun testo aggiuntivo né code fences) con i rami intorno a "{central_node}".
@@ -83,8 +76,7 @@ def merge_structures(acc: dict[str, set[str]], part: dict[str, list[str]]):
 
 def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
     # Rimuovi eventuale chiave identica al nodo centrale
-    if central_node in branches:
-        del branches[central_node]
+    branches.pop(central_node, None)
 
     primari = list(branches.keys())
     metà = len(primari) // 2
@@ -104,7 +96,7 @@ def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
         n = len(flat)
         if n == 0:
             return {}
-        ys = [0.9 - i*(0.8/(n-1)) for i in range(n)]
+        ys = [0.9 - i * (0.8 / (n - 1)) for i in range(n)]
         return {item[0]: y for item, y in zip(flat, ys)}
 
     posL, posR = compute_pos(flat_L), compute_pos(flat_R)
@@ -125,27 +117,25 @@ def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
 
     # etichette e linee interne
     for node, depth, *rest in flat_L:
-        x = 0.25 - 0.03*depth
+        x = 0.25 - 0.03 * depth
         y = posL[node]
-        txt = (f"- {node}") if depth else node
+        txt = f"- {node}" if depth else node
         ax.text(x, y, txt,
                 fontsize=12 if depth == 0 else 10,
                 ha="center", va="center",
-                bbox=dict(boxstyle="round",
-                          fc="lavender" if depth == 0 else "white"))
+                bbox=dict(boxstyle="round", fc="lavender" if depth == 0 else "white"))
         if depth == 1:
             parent = rest[0]
             ax.plot([0.25, 0.25], [posL[parent], y], "gray")
 
     for node, depth, *rest in flat_R:
-        x = 0.75 + 0.03*depth
+        x = 0.75 + 0.03 * depth
         y = posR[node]
-        txt = (f"- {node}") if depth else node
+        txt = f"- {node}" if depth else node
         ax.text(x, y, txt,
                 fontsize=12 if depth == 0 else 10,
                 ha="center", va="center",
-                bbox=dict(boxstyle="round",
-                          fc="lavender" if depth == 0 else "white"))
+                bbox=dict(boxstyle="round", fc="lavender" if depth == 0 else "white"))
         if depth == 1:
             parent = rest[0]
             ax.plot([0.75, 0.75], [posR[parent], y], "gray")
@@ -162,7 +152,7 @@ doc = st.file_uploader("Carica il PDF", type=['pdf'])
 central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
 
 if st.button("Genera e Mostra Mappa") and doc:
-    # caricamento GIF
+    # mostra GIF di caricamento
     gif_path = "img/Progetto video 1.gif"
     gif_ph = st.empty()
     if os.path.exists(gif_path):
@@ -170,7 +160,7 @@ if st.button("Genera e Mostra Mappa") and doc:
         gif_ph.markdown(f"<img src='data:image/gif;base64,{b64}' width=200/>", unsafe_allow_html=True)
 
     testo = estrai_testo_da_pdf(doc)
-    blocchi = suddividi_testo(testo)
+    blocchi = suddividi_testo_con_overlap(testo, max_chars=15000, overlap_chars=500)
 
     status = st.empty()
     prog   = st.progress(0)
@@ -178,17 +168,22 @@ if st.button("Genera e Mostra Mappa") and doc:
 
     total = len(blocchi)
     for idx, blk in enumerate(blocchi, start=1):
-        pct = int((idx/total)*100)
+        pct = int((idx / total) * 100)
         status.info(f"Generazione mappa... {pct}%")
         prog.progress(pct)
 
+        # skip se nessun riferimento al nodo
+        if central_node.lower() not in blk.lower():
+            st.markdown(f"_Blocco {idx}: nessun riferimento a '{central_node}' — salto_")
+            continue
+
         part = genera_struttura_per_blocco(blk, central_node)
+        part.pop(central_node, None)
 
-        # Rimuovi nodo centrale se presente come ramo
-        if central_node in part:
-            del part[central_node]
+        if not part:
+            st.warning(f"Blocco {idx} contiene '{central_node}' ma LLM ha restituito {{}}; uso fallback.")
+            part = {"[automatic]": [central_node]}
 
-        # Stampa a video per debug
         st.markdown(f"**Blocco {idx}**")
         st.code(part, language="python")
 
