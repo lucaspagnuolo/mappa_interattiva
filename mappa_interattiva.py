@@ -196,7 +196,7 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
             positions[node] = (x, y)
 
     # Creazione rete PyVis
-    net = Network(directed=True, height='650px', width='100%')(directed=True, height='650px', width='100%')
+    net = Network(directed=True, height='650px', width='100%')
     net.toggle_physics(False)
     for n in G.nodes():
         size = 10 + (tf.get(n, 0) ** 0.5) * 20
