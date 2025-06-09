@@ -195,7 +195,7 @@ if 'mappa' in st.session_state:
     )
 
     st.subheader("Mappa Concettuale – Radiale")
-    agraph(nodes=nodes, edges=edges, config=config)
+    agraph(nodes=nodes, edges=edges, options=config)
 
     st.download_button(
         "Scarica JSON",
