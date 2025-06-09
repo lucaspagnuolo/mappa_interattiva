@@ -143,66 +143,93 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
 
     return {'nodes': list(raw_nodes), 'edges': raw_edges, 'tf': tf, 'index_terms': filtered_index}
 
-# === NUOVA FUNZIONE PER MATPLOTLIB ===
+# === NUOVA FUNZIONE PER MATPLOTLIB SENZA SOVRAPPOSIZIONI ===
 
 def draw_mind_map_from_json(mappa: dict, central_node: str, soglia: int):
     # 1) Filtra i nodi
     tf = mappa.get('tf', {})
     index_terms = set(mappa.get('index_terms', []))
-    valid_nodes = {n for n, cnt in tf.items() if cnt >= soglia} | index_terms | {central_node}
+    valid = {n for n, cnt in tf.items() if cnt >= soglia} | index_terms | {central_node}
 
-    # 2) Seleziona solo edges di primo livello (da centrale)
-    primo_livello = [e['to'] for e in mappa['edges']
-                     if e['from'] == central_node and e['to'] in valid_nodes]
+    # 2) Seleziona solo rami di primo livello
+    primi = [e['to'] for e in mappa['edges']
+             if e['from'] == central_node and e['to'] in valid]
 
-    # 3) Dividi i rami in due metà
-    metà = len(primo_livello) // 2
-    left_nodes  = primo_livello[:metà]
-    right_nodes = primo_livello[metà:]
+    # 3) Dividi rami in sinistra/destra
+    metà = len(primi) // 2
+    left = primi[:metà]
+    right = primi[metà:]
 
-    # 4) Costruisci i sottorami
-    def collect_subnodes(branch_nodes):
-        d = {}
-        for b in branch_nodes:
-            subs = [e['to'] for e in mappa['edges']
-                    if e['from'] == b and e['to'] in valid_nodes]
-            d[b] = subs
-        return d
+    # 4) Appiattisci ramo + sottorami
+    def flatten(branch_list):
+        flat = []
+        for b in branch_list:
+            flat.append((b, 0))
+            for e in mappa['edges']:
+                if e['from'] == b and e['to'] in valid:
+                    flat.append((e['to'], 1))
+        return flat
 
-    left_branches  = collect_subnodes(left_nodes)
-    right_branches = collect_subnodes(right_nodes)
+    flat_L = flatten(left)
+    flat_R = flatten(right)
 
-    # 5) Disegna con Matplotlib
+    # 5) Calcola posizioni y equispaziate
+    def compute_positions(flat):
+        n = len(flat)
+        if n == 0:
+            return {}
+        ys = [0.9 - i * (0.8 / (n - 1)) for i in range(n)]
+        return {node: y for (node, _), y in zip(flat, ys)}
+
+    posL = compute_positions(flat_L)
+    posR = compute_positions(flat_R)
+
+    # 6) Disegna
     fig, ax = plt.subplots(figsize=(20, 12))
     ax.axis("off")
 
+    # nodo centrale
     ax.text(0.5, 0.5, central_node,
             fontsize=16, ha="center", va="center",
             bbox=dict(boxstyle="round", fc="lightblue"))
 
-    def draw_branches(branches, direction="left"):
-        if not branches:
-            return
-        step_y = 1 / (len(branches) + 1)
-        for i, (branch, subnodes) in enumerate(branches.items()):
-            y = 0.9 - i * step_y
-            x = 0.25 if direction == "left" else 0.75
-            ax.text(x, y, branch,
-                    fontsize=12, ha="center", va="center",
-                    bbox=dict(boxstyle="round", fc="lavender"))
-            ax.plot([0.5, x], [0.5, y], "gray")
+    # linee dal centro ai rami
+    for node, depth in flat_L:
+        if depth == 0:
+            ax.plot([0.5, 0.25], [0.5, posL[node]], "gray")
+    for node, depth in flat_R:
+        if depth == 0:
+            ax.plot([0.5, 0.75], [0.5, posR[node]], "gray")
 
-            # Sottorami
-            substep = 0.04
-            for j, sub in enumerate(subnodes):
-                sub_y = y - (j+1) * substep
-                ax.text(x, sub_y, f"- {sub}",
-                        fontsize=10, ha="center", va="center",
-                        bbox=dict(boxstyle="round", fc="white"))
-                ax.plot([x, x], [y, sub_y], "gray")
+    # etichette e linee interne
+    for node, depth in flat_L:
+        x = 0.25 - 0.03 * depth
+        y = posL[node]
+        txt = f"- {node}" if depth else node
+        ax.text(x, y, txt,
+                fontsize=12 if depth == 0 else 10,
+                ha="center", va="center",
+                bbox=dict(boxstyle="round",
+                          fc="lavender" if depth == 0 else "white"))
+        # collegamento ramo → sottoramo
+        if depth == 1:
+            parent = next(e['from'] for e in mappa['edges']
+                          if e['to'] == node and e['from'] in left)
+            ax.plot([0.25, 0.25], [posL[parent], y], "gray")
 
-    draw_branches(left_branches,  "left")
-    draw_branches(right_branches, "right")
+    for node, depth in flat_R:
+        x = 0.75 + 0.03 * depth
+        y = posR[node]
+        txt = f"- {node}" if depth else node
+        ax.text(x, y, txt,
+                fontsize=12 if depth == 0 else 10,
+                ha="center", va="center",
+                bbox=dict(boxstyle="round",
+                          fc="lavender" if depth == 0 else "white"))
+        if depth == 1:
+            parent = next(e['from'] for e in mappa['edges']
+                          if e['to'] == node and e['from'] in right)
+            ax.plot([0.75, 0.75], [posR[parent], y], "gray")
 
     plt.tight_layout()
     st.pyplot(fig)
