@@ -4,4 +4,4 @@ networkx>=3.0
 pyvis>=0.2.1
 mistralai>=1.8.1
 Pillow
-streamlit-agraph>=0.1.8
+streamlit-agraph
