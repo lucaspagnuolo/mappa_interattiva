@@ -12,29 +12,52 @@ from mistralai import Mistral, SDKError
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
 
-# === ESTRAZIONE E SUDDIVISIONE TESTO ===
+# === FUNZIONI DI BACKEND ===
 
 def estrai_testo_da_pdf(file) -> str:
     testo = []
     with pdfplumber.open(file) as pdf:
         total = len(pdf.pages)
-        prog = st.progress(0)
+        progress = st.progress(0)
         for i, pagina in enumerate(pdf.pages, 1):
             testo.append(pagina.extract_text() or "")
-            prog.progress(i / total)
-    prog.empty()
+            progress.progress(i / total)
+    progress.empty()
     return "\n".join(testo)
 
 
-def suddividi_testo_con_overlap(testo: str, max_chars: int = 15000, overlap_chars: int = 500) -> list[str]:
+def suddividi_testo(testo: str, max_chars: int = 15000) -> list[str]:
     parole = testo.split()
     blocchi = []
-    i = 0
-    while i < len(parole):
-        corrente = parole[i:i + max_chars]
+    corrente = []
+    lunghezza = 0
+    for parola in parole:
+        if lunghezza + len(parola) + 1 > max_chars:
+            blocchi.append(" ".join(corrente))
+            corrente, lunghezza = [], 0
+        corrente.append(parola)
+        lunghezza += len(parola) + 1
+    if corrente:
         blocchi.append(" ".join(corrente))
-        i += max_chars - overlap_chars
     return blocchi
+
+
+def call_with_retries(prompt_args, max_retries: int = 5):
+    for attempt in range(1, max_retries + 1):
+        try:
+            time.sleep(1)
+            return client.chat.complete(**prompt_args)
+        except SDKError as e:
+            if e.status_code == 429 and attempt < max_retries:
+                time.sleep(2 ** attempt)
+                continue
+            raise
+        except Exception:
+            if attempt < max_retries:
+                time.sleep(2 ** attempt)
+                continue
+            else:
+                raise
 
 # === GENERAZIONE STRUTTURA VIA LLM A BLOCCHI ===
 
@@ -60,25 +83,23 @@ Nessun altro testo fuori dal blocco JSON.
 Estrai dai seguenti contenuti:
 ```
 {block_text}
-```
-"""
-    for attempt in range(3):
+```"""
+    prompt_args = {
+        'model': MODEL,
+        'messages': [{'role': 'user', 'content': prompt}]
+    }
+    resp = call_with_retries({'model': MODEL, 'messages': [{'role':'user','content': prompt}]})
+    txt = resp.choices[0].message.content
+    m = re.search(r"```json\s*(\{.*?\})\s*```", txt, flags=re.S | re.M)
+    if not m:
+        m = re.search(r"```(?:python)?\s*(\{.*?\})\s*```", txt, flags=re.S | re.M)
+    if m:
+        js = m.group(1)
         try:
-            resp = client.chat.complete(
-                model=MODEL,
-                messages=[{"role":"user","content":prompt}],
-            )
-            txt = resp.choices[0].message.content
-            m = re.search(r"```json\s*(\{.*?\})\s*```", txt, flags=re.S|re.M)
-            if not m:
-                m = re.search(r"```(?:python)?\s*(\{.*?\})\s*```", txt, flags=re.S|re.M)
-            if not m:
-                continue
-            js = m.group(1)
             data = json.loads(js)
             return data.get(central_node, {})
-        except (SDKError, json.JSONDecodeError):
-            time.sleep(2 ** attempt)
+        except json.JSONDecodeError:
+            return {}
     return {}
 
 
@@ -89,7 +110,6 @@ def merge_structures(acc: dict[str, set[str]], part: dict[str, list[str]]):
 # === DISEGNO MIND MAP ===
 
 def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
-    # Rimuovi chiave duplicata
     branches.pop(central_node, None)
     primari = list(branches.keys())
     meta = len(primari) // 2
@@ -105,7 +125,6 @@ def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
 
     flat_L, flat_R = flatten(left), flatten(right)
 
-    # Calcola posizioni y
     def compute_pos(flat):
         n = len(flat)
         if n == 0:
@@ -115,22 +134,18 @@ def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
 
     posL, posR = compute_pos(flat_L), compute_pos(flat_R)
 
-    # Adatta dimensioni dinamicamente
     total_nodes = len(flat_L) + len(flat_R) + 1
     height = max(12, total_nodes * 0.3)
     fig, ax = plt.subplots(figsize=(20, height))
     ax.axis("off")
 
-    # Riduci il font se troppi nodi
     main_fs = 16 if total_nodes <= 50 else max(8, 16 * 50 / total_nodes)
     sub_fs = main_fs * 0.8
 
-    # Nodo centrale
     ax.text(0.5, 0.5, central_node,
             fontsize=main_fs, ha="center", va="center",
             bbox=dict(boxstyle="round", fc="lightblue"))
 
-    # Linee ai rami
     for node, depth, *rest in flat_L:
         if depth == 0:
             ax.plot([0.5, 0.25], [0.5, posL[node]], "gray")
@@ -138,7 +153,6 @@ def draw_mind_map(central_node: str, branches: dict[str, set[str]]):
         if depth == 0:
             ax.plot([0.5, 0.75], [0.5, posR[node]], "gray")
 
-    # Etichette e linee interne
     for node, depth, *rest in flat_L:
         x = 0.25 - 0.03 * depth
         y = posL[node]
@@ -175,7 +189,6 @@ doc = st.file_uploader("Carica il PDF", type=['pdf'])
 central_node = st.text_input("Nodo centrale", value="Servizio di Manutenzione")
 
 if st.button("Genera e Mostra Mappa") and doc:
-    # Mostra GIF di caricamento
     gif_ph = st.empty()
     gif_path = "img/Progetto video 1.gif"
     if os.path.exists(gif_path):
@@ -183,7 +196,7 @@ if st.button("Genera e Mostra Mappa") and doc:
         gif_ph.markdown(f"<img src='data:image/gif;base64,{b64}' width=200/>", unsafe_allow_html=True)
 
     testo = estrai_testo_da_pdf(doc)
-    blocchi = suddividi_testo_con_overlap(testo, max_chars=15000, overlap_chars=500)
+    blocchi = suddividi_testo(testo, max_chars=15000)
 
     status, prog = st.empty(), st.progress(0)
     accum: dict[str, set[str]] = {}
