@@ -175,7 +175,7 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
         levels.setdefault(d, []).append(n)
     max_level = max(levels.keys()) if levels else 1
     from random import uniform  # per piccolo jitter angolare
-    ring_radius = 3000  # distanza di base tra livelli (aumentato per evitare sovrapposizioni)
+    ring_radius = 1000  # distanza di base tra livelli (aumentato per evitare sovrapposizioni)
     positions = {}
     positions[central_node] = (0, 0)
     for lvl, nodes_at_lvl in levels.items():
