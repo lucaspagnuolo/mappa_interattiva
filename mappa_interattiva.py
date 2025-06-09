@@ -168,18 +168,27 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
         reachable |= nx.descendants(G_full, central_node)
     G = G_full.subgraph(reachable).copy()
 
-    nodes = list(G.nodes())
-    others = [n for n in nodes if n != central_node]
-    num = len(others) if others else 1
-    radius = 300
-    positions = {central_node: (0, 0)}
-    for idx, node in enumerate(others):
-        angle = 2 * 3.141592653589793 * idx / num
-        x = radius * cos(angle)
-        y = radius * sin(angle)
-        positions[node] = (x, y)
+        # Layout radiale a più livelli: nodo centrale al centro, neighbor e discendenti su cerchi concentrici
+    depth = nx.single_source_shortest_path_length(G, central_node)
+    levels = {}
+    for n, d in depth.items():
+        levels.setdefault(d, []).append(n)
+    max_level = max(levels.keys()) if levels else 1
+    ring_radius = 200  # distanza di base tra livelli
+    positions = {}
+    positions[central_node] = (0, 0)
+    for lvl, nodes_at_lvl in levels.items():
+        if lvl == 0:
+            continue
+        num_n = len(nodes_at_lvl)
+        radius_lvl = lvl * ring_radius
+        for idx, node in enumerate(nodes_at_lvl):
+            angle = 2 * 3.141592653589793 * idx / num_n
+            x = radius_lvl * cos(angle)
+            y = radius_lvl * sin(angle)
+            positions[node] = (x, y)
 
-    net = Network(directed=True, height='650px', width='100%')
+    net = Network(directed=True, height='650px', width='100%')(directed=True, height='650px', width='100%')
     net.toggle_physics(False)  # disabilita la fisica per layout fisso
     for n in G.nodes():
         size = 10 + (tf.get(n, 0) ** 0.5) * 20
