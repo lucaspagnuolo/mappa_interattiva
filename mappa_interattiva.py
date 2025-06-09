@@ -156,6 +156,7 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
     index_terms = set(mappa.get('index_terms', []))
     valid_nodes = {n for n, count in tf.items() if count >= soglia} | index_terms | {central_node}
 
+    # Costruzione grafo filtrato
     G_full = nx.DiGraph()
     G_full.add_nodes_from(valid_nodes)
     for e in mappa['edges']:
@@ -168,39 +169,36 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
         reachable |= nx.descendants(G_full, central_node)
     G = G_full.subgraph(reachable).copy()
 
-        # Layout radiale a più livelli: nodo centrale al centro, neighbor e discendenti su cerchi concentrici
+    # Clustering con Louvain per gruppi di colore
+    try:
+        communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
+        group_map = {n: i for i, comm in enumerate(communities) for n in comm}
+    except Exception:
+        group_map = {n: 0 for n in G.nodes()}
+
+    # Calcolo profondità livelli
     depth = nx.single_source_shortest_path_length(G, central_node)
     levels = {}
     for n, d in depth.items():
         levels.setdefault(d, []).append(n)
-    max_level = max(levels.keys()) if levels else 1
-    from random import uniform  # per piccolo jitter angolare
-    ring_radius = 1000  # distanza di base tra livelli (aumentato per evitare sovrapposizioni)
-    positions = {}
-    positions[central_node] = (0, 0)
+    from random import uniform
+    ring_radius = 1000  # distanza tra livelli impostata a 1000
+    positions = {central_node: (0, 0)}
     for lvl, nodes_at_lvl in levels.items():
-        # cerchio di livello, con raggio maggiore per livelli più esterni
-        num_n = len(nodes_at_lvl)
-        radius_lvl = lvl * ring_radius
-        for idx, node in enumerate(nodes_at_lvl):
-            # angolo uniforme + piccolo jitter
-            base_angle = 2 * 3.141592653589793 * idx / num_n
-            angle = base_angle + uniform(-0.1, 0.1)
-            x = radius_lvl * cos(angle)
-            y = radius_lvl * sin(angle)
-            positions[node] = (x, y)
         if lvl == 0:
             continue
         num_n = len(nodes_at_lvl)
         radius_lvl = lvl * ring_radius
         for idx, node in enumerate(nodes_at_lvl):
-            angle = 2 * 3.141592653589793 * idx / num_n
+            base_angle = 2 * 3.141592653589793 * idx / num_n
+            angle = base_angle + uniform(-0.1, 0.1)
             x = radius_lvl * cos(angle)
             y = radius_lvl * sin(angle)
             positions[node] = (x, y)
 
+    # Creazione rete PyVis
     net = Network(directed=True, height='650px', width='100%')
-    net.toggle_physics(False)  # disabilita la fisica per layout fisso
+    net.toggle_physics(False)
     for n in G.nodes():
         size = 10 + (tf.get(n, 0) ** 0.5) * 20
         x, y = positions.get(n, (None, None))
@@ -210,7 +208,8 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
             x=x,
             y=y,
             fixed={'x': True, 'y': True},
-            size=size
+            size=size,
+            group=group_map.get(n, 0)
         )
     for src, dst, data in G.edges(data=True):
         net.add_edge(src, dst, label=data.get('relation', ''))
