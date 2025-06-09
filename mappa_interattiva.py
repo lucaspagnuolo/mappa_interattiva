@@ -164,38 +164,45 @@ def crea_grafo_interattivo(mappa: dict, central_node: str, soglia: int) -> str:
         if frm in valid_nodes and to in valid_nodes:
             G_full.add_edge(frm, to, relation=e.get('relation', ''))
 
+    # Sotto-grafo raggiungibile
     reachable = {central_node}
     if central_node in G_full:
         reachable |= nx.descendants(G_full, central_node)
     G = G_full.subgraph(reachable).copy()
 
-    # Clustering con Louvain per gruppi di colore
+    # Clustering per gruppi di colore
     try:
         communities = list(nx.algorithms.community.louvain_communities(G.to_undirected()))
         group_map = {n: i for i, comm in enumerate(communities) for n in comm}
     except Exception:
         group_map = {n: 0 for n in G.nodes()}
 
-    # Calcolo profondità livelli e posizionamento sinistra/destra
-    depth = nx.single_source_shortest_path_length(G, central_node)
-    levels = {}
-    for n, d in depth.items():
-        levels.setdefault(d, []).append(n)
-    from random import uniform
-    ring_radius = 1000
-    positions = {central_node: (0, 0)}
-    for lvl, nodes_at_lvl in levels.items():
-        if lvl == 0:
-            continue
-        num_n = len(nodes_at_lvl)
-        side = 1 if lvl % 2 == 1 else -1
-        for idx, node in enumerate(nodes_at_lvl):
-            frac = (idx + 1) / (num_n + 1)
-            x = lvl * ring_radius * side
-            y = (frac - 0.5) * lvl * ring_radius * 1.5 + uniform(-50, 50)
-            positions[node] = (x, y)
+    # Creazione rete PyVis con layout gerarchico sinistra/destra
+    net = Network(directed=True, height='650px', width='100%')
+    net.toggle_physics(False)
+    # Abilita layout gerarchico: da centro verso sinistra/destra
+    options = {
+        'layout': {'hierarchical': {'enabled': True, 'direction': 'LR', 'sortMethod': 'hubsize'}},
+        'physics': {'hierarchicalRepulsion': {'nodeDistance': 200}}
+    }
+    net.set_options(json.dumps({'nodes': {}, 'edges': {}, 'layout': options['layout'], 'physics': options['physics']}))
 
-    # Creazione rete PyVis
+    # Aggiungi nodi e archi
+    for n in G.nodes():
+        size = 10 + (tf.get(n, 0) ** 0.5) * 20
+        net.add_node(
+            n,
+            label=n,
+            size=size,
+            group=group_map.get(n, 0)
+        )
+    for src, dst, data in G.edges(data=True):
+        net.add_edge(src, dst, label=data.get('relation', ''))
+    net.show_buttons(filter_=['layout', 'physics', 'nodes', 'edges'])
+    html_file = f"temp_graph_{int(time.time())}.html"
+    net.save_graph(html_file)
+    st.success("Grafo generato")
+    return html_file
     net = Network(directed=True, height='650px', width='100%')
     net.toggle_physics(False)
     for n in G.nodes():
