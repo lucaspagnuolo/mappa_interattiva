@@ -25,6 +25,7 @@ def estrai_testo_da_pdf(file) -> str:
     prog.empty()
     return "\n".join(testo)
 
+
 def suddividi_testo_con_overlap(testo: str, max_chars: int = 15000, overlap_chars: int = 500) -> list[str]:
     parole = testo.split()
     blocchi = []
@@ -67,7 +68,6 @@ Estrai dai seguenti contenuti:
                 messages=[{"role":"user","content":prompt}],
             )
             txt = resp.choices[0].message.content
-            # estrai il JSON tra backticks
             m = re.search(r"```json\s*(\{.*?\})\s*```", txt, flags=re.S|re.M)
             if not m:
                 m = re.search(r"```(?:python)?\s*(\{.*?\})\s*```", txt, flags=re.S|re.M)
@@ -75,11 +75,11 @@ Estrai dai seguenti contenuti:
                 continue
             js = m.group(1)
             data = json.loads(js)
-            # ritorna solo i rami (skip nodo centrale livello 0)
             return data.get(central_node, {})
         except (SDKError, json.JSONDecodeError):
             time.sleep(2 ** attempt)
     return {}
+
 
 def merge_structures(acc: dict[str, set[str]], part: dict[str, list[str]]):
     for ramo, subs in part.items():
@@ -172,11 +172,9 @@ if st.button("Genera e Mostra Mappa") and doc:
         status.info(f"Generazione mappa... {pct}%")
         prog.progress(pct)
 
-        if central_node.lower() not in blk.lower():
-            st.markdown(f"_Blocco {idx}: salto (no riferimento)_")
-            continue
-
+        # sempre genera struttura
         part = genera_struttura_per_blocco(blk, central_node)
+        # fallback se vuoto
         if not part:
             st.warning(f"Blocco {idx}: fallback automatico")
             part = {"[automatic]": [central_node]}
