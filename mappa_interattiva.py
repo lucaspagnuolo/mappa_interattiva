@@ -226,13 +226,27 @@ if mode == "Mappa Gerarchica":
     if st.button("Genera Mappa Gerarchica") and doc:
         testo = estrai_testo_da_pdf(doc)
         blocchi = suddividi_testo(testo)
-        accum={}; status=st.empty(); prog=st.progress(0);
-        total=len(blocchi)
-        for idx,blk in enumerate(blocchi,1): pct=int(idx/total*100); status.info(f"Generazione... {pct}%"); prog.progress(pct)
-            part=genera_struttura_per_blocco(blk,central_node)
-            if not part: st.warning(f"Blocco {idx}: fallback"); part={"[automatic]":[central_node]}
-            st.markdown(f"**Blocco {idx}**"); st.code(part,language='python'); merge_structures(accum,part)
-        prog.empty(); status.success("Mappa Gerarchica completata!"); draw_mind_map(central_node,accum)
+        accum = {}
+        status = st.empty()
+        prog = st.progress(0)
+        total = len(blocchi)
+        for idx, blk in enumerate(blocchi, 1):
+            pct = int(idx / total * 100)
+            status.info(f"Generazione... {pct}%")
+            prog.progress(pct)
+
+            part = genera_struttura_per_blocco(blk, central_node)
+            if not part:
+                st.warning(f"Blocco {idx}: fallback")
+                part = {"[automatic]": [central_node]}
+
+            st.markdown(f"**Blocco {idx}**")
+            st.code(part, language='python')
+            merge_structures(accum, part)
+
+        prog.empty()
+        status.success("Mappa Gerarchica completata!")
+        draw_mind_map(central_node, accum)
 else:
     # Genera JSON e quindi mostra soglia
     if st.button("Genera JSON Completo") and doc:
