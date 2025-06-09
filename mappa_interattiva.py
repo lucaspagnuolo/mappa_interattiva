@@ -7,20 +7,14 @@ import pdfplumber
 import networkx as nx
 import streamlit as st
 import streamlit.components.v1 as components
-import base64
 from mistralai import Mistral, SDKError
-from PIL import Image
+from streamlit_agraph import agraph, Config, Node, Edge
 
 # =============================================
 # CONFIGURAZIONE API
 # =============================================
 client = Mistral(api_key=st.secrets["MISTRAL_API_KEY"])
 MODEL = st.secrets.get("MISTRAL_MODEL", "mistral-large-latest")
-
-# =============================================
-# INSTALLAZIONE: pip install streamlit-agraph
-# =============================================
-from streamlit_agraph import agraph, Config, Node, Edge
 
 # =============================================
 # FUNZIONI DI BACKEND
@@ -35,7 +29,6 @@ def estrai_testo_da_pdf(file) -> str:
             progress.progress(i / total)
     progress.empty()
     return "\n".join(testo)
-
 
 def estrai_indice(testo: str) -> list[str]:
     righe = testo.splitlines()
@@ -57,11 +50,9 @@ def estrai_indice(testo: str) -> list[str]:
                 termini.append(parti[0].strip())
     return termini
 
-
 def filtra_paragrafi_sottoparagrafi(index_terms: list[str]) -> list[str]:
     pattern = re.compile(r'^\d+(?:\.\d+)*\s+[A-ZÀ-ÖØ-Ý]')
     return [t for t in index_terms if pattern.match(t)]
-
 
 def suddividi_testo(testo: str, max_chars: int = 15000) -> list[str]:
     parole = testo.split()
@@ -75,7 +66,6 @@ def suddividi_testo(testo: str, max_chars: int = 15000) -> list[str]:
     if corrente:
         blocchi.append(" ".join(corrente))
     return blocchi
-
 
 def call_with_retries(prompt_args, max_retries=5):
     for attempt in range(1, max_retries + 1):
@@ -93,7 +83,6 @@ def call_with_retries(prompt_args, max_retries=5):
                 continue
             raise
 
-
 def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[str] = None) -> dict:
     blocchi = suddividi_testo(testo)
     ris = []
@@ -107,12 +96,15 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
         progress.progress(percentuale)
 
         prompt = (
-            "Rispondi SOLO con un JSON valido contenente i campi 'nodes' e 'edges'."
-            " Includi nodes ed edges con campi 'from','to','relation'."
-            f" Nodo centrale: '{central_node}'\n"
-            f"\nBlocco {idx}/{totale_blocchi}:\n{b}"
+            "Rispondi SOLO con un JSON valido contenente i campi 'nodes' e 'edges'. "
+            "Includi nodes ed edges con campi 'from','to','relation'. "
+            f"Nodo centrale: '{central_node}'\n\n"
+            f"Blocco {idx}/{totale_blocchi}:\n{b}"
         )
-        resp = call_with_retries({"model": MODEL, "messages": [{"role": "user", "content": prompt}]})
+        resp = call_with_retries({
+            "model": MODEL,
+            "messages": [{"role": "user", "content": prompt}]
+        })
         txt = resp.choices[0].message.content.strip()
         if txt.startswith("```"):
             lines = txt.splitlines()
@@ -159,7 +151,6 @@ def genera_mappa_concettuale(testo: str, central_node: str, index_terms: list[st
 # STREAMLIT UI
 # =============================================
 st.set_page_config(page_title="Generatore Mappa Concettuale PDF – Layout Radiale", layout="wide")
-
 st.title("Generatore Mappa Concettuale PDF – Layout Radiale")
 
 pdf_file = st.file_uploader("Carica il PDF", type=['pdf'])
@@ -184,16 +175,23 @@ if 'mappa' in st.session_state:
         if e['from'] != central_node and e['to'] != central_node:
             G.add_edge(e['from'], e['to'], relation=e.get('relation',''))
 
-    nodes = [Node(id=n, label=n, size=10 + (tf.get(n,0)**0.5)*20)
-             for n in G.nodes()]
-    edges = [Edge(source=src, target=dst, label=data.get('relation',''))
-             for src, dst, data in G.edges(data=True)]
+    nodes = [
+        Node(id=n, label=n, size=10 + (tf.get(n,0)**0.5)*20)
+        for n in G.nodes()
+    ]
+    edges = [
+        Edge(source=src, target=dst, label=data.get('relation',''))
+        for src, dst, data in G.edges(data=True)
+    ]
 
     config = Config(
         width="100%", height=700, directed=True,
-        layout='radial', nodeHighlightBehavior=True,
-        highlightColor="#F7A7A6", collapsible=False,
-        initialZoom=1.0, node={'fontSize': 12}
+        layout='radial',          # <-- LAYOUT RADIALE SEMPRE
+        nodeHighlightBehavior=True,
+        highlightColor="#F7A7A6",
+        collapsible=False,
+        initialZoom=1.0,
+        node={'fontSize': 12}
     )
 
     st.subheader("Mappa Concettuale – Radiale")
@@ -202,14 +200,25 @@ if 'mappa' in st.session_state:
     st.download_button(
         "Scarica JSON",
         data=json.dumps(mappa, ensure_ascii=False, indent=2),
-        file_name="mappa_completa.json", mime='application/json'
+        file_name="mappa_completa.json",
+        mime='application/json'
     )
 
-    # Genera e scarica HTML
-    html_content = agraph(nodes=nodes, edges=edges, config=config, return_html=True)
-    st.download_button(
-        "Scarica HTML",
-        data=html_content,
-        file_name="mappa_radiale.html",
-        mime='text/html'
-    )
+    # Se vuoi esportare in HTML con pyvis, scommenta e installa pyvis:
+    # from pyvis.network import Network
+    #
+    # def salva_mappa_html(nodes, edges, filename="mappa_radiale.html"):
+    #     net = Network(height="750px", width="100%", directed=True)
+    #     for node in nodes:
+    #         net.add_node(node.id, label=node.label, size=node.size)
+    #     for edge in edges:
+    #         net.add_edge(edge.source, edge.target, label=edge.label)
+    #     net.show(filename)
+    #     return filename
+    #
+    # if st.button("Esporta come HTML"):
+    #     html_file = salva_mappa_html(nodes, edges)
+    #     with open(html_file, "r", encoding="utf-8") as f:
+    #         html_content = f.read()
+    #     st.download_button("Scarica HTML", data=html_content,
+    #                        file_name="mappa_radiale.html", mime="text/html")
